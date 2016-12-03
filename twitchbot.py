@@ -65,6 +65,13 @@ class BufferNicklist(object):
         raise StopIteration
 
 
+def is_valid_nick(nick=None):
+    """Return True if the given nick looks like a valid irc nick, False otherwise."""
+    if not nick:
+        return False
+
+    return weechat.info_get('irc_is_nick', nick) == '1'
+
 
 # =====================================
 # Timer object
@@ -249,8 +256,6 @@ class WeechatBot(object):
     def nick_in_chat(self, nick):
         return weechat.nicklist_search_nick(self.buffer, "", nick)
 
-    def is_valid_nick(self, nick):
-        return weechat.info_get('irc_is_nick', nick)
     def get_own_nick(self):
         return weechat.buffer_get_string(self.buffer, "localvar_nick")
 
@@ -394,7 +399,7 @@ class BaseBot(object):
         if sender.nick not in self.get_owner():
             return
 
-        if not self.is_valid_nick(nick):
+        if not is_valid_nick(nick):
             return self.say(sender, "That is not a valid nick.")
 
         if nick not in self.ops:
@@ -406,7 +411,7 @@ class BaseBot(object):
         if sender.nick not in self.get_owner():
             return
 
-        if not self.is_valid_nick(nick):
+        if not is_valid_nick(nick):
             self.say(sender, "That is not a valid nick.")
 
         if nick in self.ops:
@@ -432,7 +437,7 @@ class BaseBot(object):
         if not self.can_use_op(sender):
             return
 
-        if not self.is_valid_nick(nick):
+        if not is_valid_nick(nick):
             self.say(sender, "That is not a valid nick.")
 
         if nick not in self.regulars:
@@ -444,7 +449,7 @@ class BaseBot(object):
         if not self.can_use_op(sender):
             return
 
-        if not self.is_valid_nick(nick):
+        if not is_valid_nick(nick):
             self.say(sender, "That is not a valid nick.")
 
         if nick in self.regulars:
@@ -463,7 +468,7 @@ class BaseBot(object):
         if not self.can_use_op(sender):
             return
 
-        if not self.is_valid_nick(nick):
+        if not is_valid_nick(nick):
             self.say(sender, 'That is not a valid nick.')
 
         if nick not in self.blacklist:
@@ -477,7 +482,7 @@ class BaseBot(object):
         if not self.can_use_op(sender):
             return
 
-        if not self.is_valid_nick(nick):
+        if not is_valid_nick(nick):
             self.say(sender, 'That is not a valid nick.')
 
         if nick in self.blacklist:
@@ -555,7 +560,7 @@ class BotFunMixin(object):
         if not self.can_use_op(sender):
             return
 
-        if not self.is_valid_nick(args):
+        if not is_valid_nick(args):
             return self.say(sender, 'That is not a valid nickname.')
 
         self.charm = args
