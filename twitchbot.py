@@ -38,6 +38,9 @@ def debug(text):
         weechat.prnt("", text)
 
 
+# =====================================
+# Weechat API Wrappers
+# =====================================
 class BufferNicklist(object):
     """Adapter class for the FUGLY weechat api to get the nicklist."""
     buffer = ''
@@ -49,19 +52,18 @@ class BufferNicklist(object):
     def __len__(self):
         return weechat.buffer_get_integer(self.buffer, "nicklist_nicks_count")
 
-    def __getitem__(self, index):
-        if index >= len(self):
-            raise IndexError
+    def __iter__(self):
+        return self
 
-        while True:
-            weechat.infolist_next(self.nicklist)
-            name = weechat.infolist_string(self.nicklist, 'name').strip()
+    def next(self):
+        while weechat.infolist_next(self.nicklist):
             nick_type = weechat.infolist_string(self.nicklist, 'type').strip()
+            name = weechat.infolist_string(self.nicklist, 'name').strip()
             prefix = weechat.infolist_string(self.nicklist, 'prefix').strip()
             if nick_type == 'nick':
-                break
+                return User(prefix=prefix, nick=name)
+        raise StopIteration
 
-        return User(prefix=prefix, nick=name)
 
 
 # =====================================
