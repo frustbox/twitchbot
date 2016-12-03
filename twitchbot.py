@@ -41,13 +41,47 @@ def debug(text):
 # =====================================
 # Weechat API Wrappers
 # =====================================
+class BufferLocalvars(object):
+    """Allow accessing localvars as a dict.
+
+    usage:
+        localvars = BufferLocalvars(buffer)
+        server = localvars['server']
+    """
+    def __init__(self, buffer):
+        self.buffer = buffer
+
+    def __getitem__(self, key):
+        return weechat.buffer_get_string(self.buffer, 'localvar_{}'.format(key))
+
+    def __setitem__(self, key, val):
+        return weechat.buffer_set(self.buffer, 'localvar_set_{}'.format(key), val)
+
+    def __delitem__(self, key):
+        return weechat.buffer_set(self.buffer, 'localvar_set_{}'.format(key), '')
+
+    def __contains__(self, key):
+        pass
+
+
 class BufferNicklist(object):
-    """Adapter class for the FUGLY weechat api to get the nicklist."""
+    """Adapter class for the FUGLY weechat api to get the nicklist.
+
+    usage:
+        nicklist = BufferNicklist(buffer)
+        for user in nicklist:
+            print(user.prefix + user.nick)
+    """
     buffer = ''
 
     def __init__(self, buffer):
         self.buffer = buffer
-        self.nicklist = weechat.infolist_get("nicklist", self.buffer, "")
+        buffer_vars = BufferLocalvars(self.buffer)
+        buffer_string = '{server},{channel},'.format(
+            server=buffer_vars['server'],
+            channel=buffer_vars['channel'],
+        )
+        self.nicklist = weechat.infolist_get('irc_nick', '', buffer_string)
 
     def __len__(self):
         return weechat.buffer_get_integer(self.buffer, "nicklist_nicks_count")
@@ -57,11 +91,9 @@ class BufferNicklist(object):
 
     def next(self):
         while weechat.infolist_next(self.nicklist):
-            nick_type = weechat.infolist_string(self.nicklist, 'type').strip()
             name = weechat.infolist_string(self.nicklist, 'name').strip()
-            prefix = weechat.infolist_string(self.nicklist, 'prefix').strip()
-            if nick_type == 'nick':
-                return User(prefix=prefix, nick=name)
+            prefix = weechat.infolist_string(self.nicklist, 'prefixes').strip()
+            return User(prefix=prefix, nick=name)
         raise StopIteration
 
 
