@@ -28,7 +28,6 @@ CHANNELS = {
         'lorgon',
         ],
 }
-OWNER = 'frustbox'
 COMMAND_INITIATION_SYMBOL = u'+'
 
 DEBUG = False
@@ -203,6 +202,7 @@ class WeechatBot(object):
         self.network = kwargs.pop('network', '')
         self.channel = kwargs.pop('channel', '')
         self.buffer = weechat.info_get('irc_buffer', '{},#{}'.format(self.network, self.channel))
+        self.owner = [self.get_own_nick()]
 
         # this feels really awkward, see https://weechat.org/scripts/source/pybuffer.py.html/
         self.__name__ = "{}_{}".format(network, channel)
@@ -213,12 +213,15 @@ class WeechatBot(object):
 
     def callback(self, data, buffer, date, tags, displayed, highlight, prefix, message):
         """Receive a message from the IRC client and turn it over to the bot."""
+        if not message.startswith(COMMAND_INITIATION_SYMBOL):
+            return weechat.WEECHAT_RC_OK
+
         sender_data = re.match(r'([~@%]?)(.*)', prefix)
         sender = User(
             prefix=sender_data.group(1).strip(),
             nick=sender_data.group(2).strip(),
         )
-        self.dispatch(sender, message)
+        self.dispatch(sender, message.strip()[1:])
         return weechat.WEECHAT_RC_OK
 
     # IRC stuff
@@ -246,12 +249,13 @@ class WeechatBot(object):
 
     def is_valid_nick(self, nick):
         return weechat.info_get('irc_is_nick', nick)
+    def get_own_nick(self):
+        return weechat.buffer_get_string(self.buffer, "localvar_nick")
 
 
 class BaseBot(object):
     """Bot functionality."""
 
-    owners = ['frustbox']
     ops = []
     regulars = []
     blacklist = []
@@ -337,26 +341,19 @@ class BaseBot(object):
         # ignore blacklisted users.
         if self.is_blacklisted(sender):
             debug('User {} is blacklisted: {}'.format(sender.nick, message))
-            return
+            return True
 
-        # detect command and arguments
-        if not message.startswith(COMMAND_INITIATION_SYMBOL):
-            return
+        split_message = message.partition(' ')
+        command = split_message[0]
+        args = split_message[2]
 
-        split_message = message.split(None, 1)
-
-        command = split_message[0].strip(COMMAND_INITIATION_SYMBOL)
-        args = split_message[1] if len(split_message) > 1 else None
-
-        # derive method name and see if it exists
+        # derive method name and call it.
         try:
             method = getattr(self, 'command_{}'.format(command))
+            method(sender, args)
+            return True
         except AttributeError:
             return False
-
-        # execute the command
-        method(sender, args)
-        return True
 
     def say(self, sender, text, force=False):
         """Make the bot say something."""
@@ -974,11 +971,6 @@ class BotCustomizableReplyMixin(object):
         if super(BotCustomizableReplyMixin, self).dispatch(sender, message):
             return True
 
-        if not message.startswith(COMMAND_INITIATION_SYMBOL):
-            return False
-        else:
-            reply = self.custom_replies.get(message[1:], False)
-
         if reply:
             self.say(sender, reply)
             return True
@@ -998,9 +990,6 @@ class BotCountersMixin(object):
         # extend dispatch() method
         if super(BotCountersMixin, self).dispatch(sender, message):
             return True
-
-        if not message.startswith(COMMAND_INITIATION_SYMBOL):
-            return False
 
         name = message[1:]
         if name in self.counters.keys():
@@ -1143,7 +1132,6 @@ class BotCountersMixin(object):
 class Bot(BotCountersMixin, BotCustomizableReplyMixin, BotTimerMixin, BotFunMixin, BotTwitchMixin, WeechatBot, BaseBot):
     def __init__(self, *args, **kwargs):
         super(self.__class__, self).__init__(*args, **kwargs)
-        self.listcommands()
 
 
 # =====================================
@@ -1193,4 +1181,3 @@ if __name__ == '__main__' and import_ok:
         for channel in channels:
             key = '{network}_{channel}'.format(network=network, channel=channel)
             bots[key] = Bot(network=network, channel=channel)
-            b = weechat.info_get('irc_buffer', '{},#{}'.format(network, channel))
