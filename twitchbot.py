@@ -91,17 +91,34 @@ class Timer(object):
     # =====================================
     # Logic
     # =====================================
+    def add(self, seconds=0):
+        """Add seconds to the timer by shifting the start time."""
+        if seconds != 0:
+            delta = timedelta(seconds=seconds)
+            self.start_time = self.start_time - delta
+            return True
+
+    def adjustsplit(self, name, seconds=0):
+        """Make slight adjustments to existing splits."""
+        if name not in self.splits.keys():
+            return False
+
+        if seconds != 0:
+            delta = timedelta(seconds=seconds)
+            self.splits[name] += delta
+
+        return True
+
+    def set(self, seconds=0):
+        """Set timer to a specific elapsed time (in seconds)."""
+        if seconds != 0:
+            delta = timedelta(seconds=seconds)
+            self.start_time = datetime.now() - delta
+            return True
+
     def start(self):
         """Start the timer."""
         self.start_time = datetime.now()
-        self.stop_time = None
-        self.running = True
-        return True
-
-    def restart(self):
-        """Restart the timer."""
-        self.start_time = datetime.now()
-        self.splits = OrderedDict()
         self.stop_time = None
         self.running = True
         return True
@@ -111,20 +128,6 @@ class Timer(object):
         self.stop_time = datetime.now()
         self.running = False
         return True
-
-    def add(self, seconds=0):
-        """Add seconds to the timer by shifting the start time."""
-        if seconds != 0:
-            delta = timedelta(seconds=seconds)
-            self.start_time = self.start_time - delta
-            return True
-
-    def set(self, seconds=0):
-        """Set timer to a specific elapsed time (in seconds)."""
-        if seconds != 0:
-            delta = timedelta(seconds=seconds)
-            self.start_time = datetime.now() - delta
-            return True
 
     def split(self, name):
         """Add a split to a running timer."""
@@ -138,7 +141,7 @@ class Timer(object):
         """Remove a split from the timer."""
         if name not in self.splits.keys():
             return False
-        
+
         self.splits.pop(name)
         return True
 
@@ -149,15 +152,12 @@ class Timer(object):
 
         self.splits = OrderedDict((newname if k == oldname else k, v) for k, v in self.splits.items())
 
-    def adjustsplit(self, name, seconds=0):
-        """Make slight adjustments to existing splits."""
-        if name not in self.splits.keys():
-            return False
-
-        if seconds != 0:
-            delta = timedelta(seconds=seconds)
-            self.splits[name] += delta
-
+    def restart(self):
+        """Restart the timer."""
+        self.start_time = datetime.now()
+        self.splits = OrderedDict()
+        self.stop_time = None
+        self.running = True
         return True
 
     # =====================================
@@ -174,14 +174,14 @@ class Timer(object):
             return False
 
     @property
-    def stopped(self):
-        """Return if the timer has been stopped."""
-        return self.stop_time is not None
-
-    @property
     def has_splits(self):
         """Return if there are splits."""
         return len(self.splits) > 0
+
+    @property
+    def stopped(self):
+        """Return if the timer has been stopped."""
+        return self.stop_time is not None
 
     @property
     def splits_string(self):
