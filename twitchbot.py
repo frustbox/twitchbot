@@ -315,25 +315,45 @@ class BaseBot(object):
 
     # Helper methods
     # --------------------------------
-    def can_use_op(self, user):
-        nick = user
-        prefix = ''
+    def can_use_owner(self, user):
+        """Return whether or not the user can use owner commands."""
         if isinstance(user, User):
             nick = user.nick
             prefix = user.prefix
+        else:
+            nick = user
+            prefix = ''
 
-        return '@' in prefix or '~' in prefix or nick in self.get_ops() or nick in self.get_owner()
+        return nick in self.get_owner()
+
+    def can_use_op(self, user):
+        """Return whether or not the user can use op commands."""
+        if isinstance(user, User):
+            nick = user.nick
+            prefix = user.prefix
+        else:
+            nick = user
+            prefix = ''
+
+        return '@' in prefix or nick in self.get_ops() or self.can_use_owner(nick)
 
     def can_use_regular(self, user):
-        nick = user
-        prefix = ''
+        """Return whether or not the user can use regular commands."""
         if isinstance(user, User):
             nick = user.nick
             prefix = user.prefix
+        else:
+            nick = user
+            prefix = ''
 
-        return '%' in prefix or self.can_use_op(user) or nick in self.get_regulars()
+        return '%' in prefix or nick in self.get_regulars() or self.can_use_op(user)
 
-    def is_blacklisted(self, nick):
+    def is_blacklisted(self, user):
+        """Return whether or not the user is blacklisted and ignored by the bot."""
+        if isinstance(user, User):
+            nick = user.nick
+        else:
+            nick = user
         return nick in self.get_blacklist()
 
     def listcommands(self):
