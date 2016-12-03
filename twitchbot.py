@@ -35,7 +35,7 @@ DEBUG = False
 
 def debug(text):
     if DEBUG:
-        weechat.prnt("", text)
+        weechat.prnt("", str(text))
 
 
 # =====================================
@@ -281,11 +281,10 @@ class WeechatBot(object):
         nicklist = [n.nick for n in self.get_nicklist() if '@' in n.prefix]
         nicklist = list(set(super_nicklist) | set(nicklist))
 
-        debug('WeechatBot.get_ops(): {}'.format(str(nicklist)))
-
         return nicklist
 
     def nick_in_chat(self, nick):
+        """Return whether or not the given nick is currently in chat."""
         return weechat.nicklist_search_nick(self.buffer, "", nick)
 
     def get_own_nick(self):
@@ -314,12 +313,11 @@ class BaseBot(object):
 
     def get_owner(self):
         """Return the owner for the current channel."""
-        return self.owners
+        return self.owner
 
     def get_ops(self):
         """Return a list of ops for the current channel."""
         # TODO: look in database
-        debug("BaseBot.get_ops(): {}".format(str(self.ops)))
         return self.ops
 
     # this line allows get_ops() to overwritten by subclasses and still be accessed internally
@@ -389,6 +387,7 @@ class BaseBot(object):
         return nick in self.get_blacklist()
 
     def listcommands(self):
+        """Return a list of known commands."""
         d = dir(self)
         return [m.replace('command_', '') for m in d if m.startswith('command_')]
 
@@ -402,9 +401,7 @@ class BaseBot(object):
             debug('User {} is blacklisted: {}'.format(sender.nick, message))
             return True
 
-        split_message = message.partition(' ')
-        command = split_message[0]
-        args = split_message[2]
+        command, _, args = message.partition(' ')
 
         # derive method name and call it.
         try:
@@ -549,17 +546,14 @@ class BaseBot(object):
         commands = ', '.join(self.listcommands())
         self.say(sender, 'Known commands: {}'.format(commands))
 
-    def command_help(self, sender, command):
+    def command_help(self, sender, message):
         """Print help for a given command. Syntax: +help <command>"""
         args = None
 
-        if command is None:
-            command = 'help'
+        if message == '':
+            message = 'help'
 
-        if ' ' in command:
-            args = command.split(None, 1)
-            command = args[0]
-            args = args[1]
+        command, _, args = message.partition(' ')
 
         if hasattr(self, 'help_'+command):
             return getattr(self, 'help_'+command)(sender, args)
@@ -574,18 +568,26 @@ class BaseBot(object):
 class BotTwitchMixin(object):
     """Add twitch specific functionality."""
 
+    def can_use_owner(self, user):
+        super_owner = super(BotTwitchMixin, self).can_use_owner(user)
+
+        if isinstance(user, User):
+            prefix = user.prefix
+        else:
+            prefix = ''
+
+        return super_owner or '~' in prefix
+
     def get_streamer(self):
-        debug('BotTwitchMixin.get_streamer(): {}'.format(self.channel))
         return self.channel
 
     def get_owner(self):
         """Streamer is automatically also an owner."""
         super_list = super(BotTwitchMixin, self).get_owner()
-        debug('BotTwitchMixin.get_owner(): {}'.format(str(super_list)))
         return list(set(super_list) | set([self.get_streamer()]))
 
-    def get_regulars(self):
-        """Return a list of regulars, make sure that subscribers are also regulars."""
+    #def get_regulars(self):
+    #    """Return a list of regulars, make sure that subscribers are also regulars."""
 
     def command_chatters(self, sender, args):
         """Return the number of users in chat."""
@@ -601,7 +603,6 @@ class BotFunMixin(object):
 
     def command_luck(self, sender, args):
         """Check if the "good luck charm" is in chat."""
-        debug('Checking luck ...')
         if self.nick_in_chat(self.charm) or sender == self.charm:
             self.say(sender, 'Oh NO! {} is here. Better save regularly. kurtCone'.format(self.charm))
         else:
@@ -627,7 +628,7 @@ class BotTimerMixin(object):
 
     def command_timer(self, sender, args):
         """Performs timer related actions: new, del, start, stop, restart, split, resplit, delsplit, status, report, list, active, rename, adjust, adjustsplit. Syntax: +timer [action] ; +timer without an action is equivalent to +timer status"""
-        if args is None:
+        if args is '':
             args = 'status'
 
         args = args.split()
@@ -636,7 +637,6 @@ class BotTimerMixin(object):
         try:
             method = getattr(self, 'timer_{}'.format(command))
         except AttributeError:
-            debug('Unknown timer-command: {}'.format(command))
             return
 
         return method(sender, args)
@@ -987,15 +987,13 @@ class BotCustomizableReplyMixin(object):
         commands = self.custom_replies.keys()
         return super_list + commands
 
-    def command_set(self, sender, args):
+    def command_set(self, sender, message):
         """Define a custom reply message. Ops only. Syntax: +set <name> <reply>"""
         if not self.can_use_op(sender):
             return
 
         try:
-            args = args.split(None, 1)
-            name = args.pop(0)
-            text = args.pop(0)
+            name, text = message.split(None, 1)
         except:
             return self.say(sender, 'Invalid syntax: {}set <name> <text>'.format(COMMAND_INITIATION_SYMBOL))
 
@@ -1006,23 +1004,19 @@ class BotCustomizableReplyMixin(object):
         self.say(sender, 'Command "{}" has been set to "{}".'.format(name, text))
         return True
 
-    def command_unset(self, sender, args):
+    def command_unset(self, sender, message):
         """Remove a custom reply message. Ops only. Syntax: +unset <name>"""
         if not self.can_use_op(sender):
             return False
 
-        try:
-            args = args.split(None, 1)
-            name = args.pop(0)
-        except:
-            self.say(sender, 'Invalid syntax {}unset <name>'.format(COMMAND_INITIATION_SYMBOL))
-            return False
+        if ' ' in message or message == '':
+            return self.say(sender, 'Invalid syntax {}unset <name>'.format(COMMAND_INITIATION_SYMBOL))
 
-        if name not in self.custom_replies.keys():
-            return self.say(sender, 'Command "{}" does not exist or is not a custom command.'.format(name))
+        if message not in self.custom_replies.keys():
+            return self.say(sender, 'Command "{}" does not exist or is not a custom command.'.format(message))
 
-        self.custom_replies.pop(name)
-        self.say(sender, 'Command "{}" has been removed.'.format(name))
+        self.custom_replies.pop(message)
+        self.say(sender, 'Command "{}" has been removed.'.format(message))
         return True
 
     def dispatch(self, sender, message):
@@ -1030,7 +1024,8 @@ class BotCustomizableReplyMixin(object):
         if super(BotCustomizableReplyMixin, self).dispatch(sender, message):
             return True
 
-        if reply:
+        if message in self.custom_replies.keys():
+            reply = self.custom_replies[message]
             self.say(sender, reply)
             return True
 
@@ -1050,12 +1045,12 @@ class BotCountersMixin(object):
         if super(BotCountersMixin, self).dispatch(sender, message):
             return True
 
-        name = message[1:]
-        if name in self.counters.keys():
-            self.counters[name]['value'] += 1
-            value = self.counters[name]['value']
-            reply = self.counters[name]['reply']
-            return self.say(sender, reply.format(value))
+        if message in self.counters.keys():
+            self.counters[message]['value'] += 1
+            value = self.counters[message]['value']
+            reply = self.counters[message]['reply']
+            self.say(sender, reply.format(value))
+            return True
 
         return False
 
@@ -1063,9 +1058,7 @@ class BotCountersMixin(object):
         """Performs counter related actions. Syntax: +counter <action> <name>; where possible actions are: list, new, del, set, add, reply. See +help counter <action>"""
 
         try:
-            args = args.partition(' ')
-            action = args[0]
-            message = args[2]
+            action, _, message = args.partition(' ')
         except:
             return self.say(sender, 'Invalid syntax: +counter <action>')
 
@@ -1094,9 +1087,7 @@ class BotCountersMixin(object):
             return
 
         try:
-            m = message.partition(' ')
-            name = m[0]
-            reply = m[2]
+            name, _, reply = message.partition(' ')
         except:
             return self.say(sender, 'Invalid syntax: +counter new <name> [reply]')
 
@@ -1118,8 +1109,7 @@ class BotCountersMixin(object):
             return
 
         try:
-            m = message.partition(' ')
-            name = m[0]
+            name = message.partition(' ')[0]
         except:
             return self.say(sender, 'Invalid syntax: +counter del <name>')
 
@@ -1139,9 +1129,8 @@ class BotCountersMixin(object):
             return
 
         try:
-            m = message.partition(' ')
-            name = m[0]
-            value = int(m[2])
+            name, _, value = message.partition(' ')
+            value = int(value)
         except:
             return self.say(sender, 'Invalid syntax: +counter set <name> <integer>')
 
@@ -1157,9 +1146,8 @@ class BotCountersMixin(object):
             return
 
         try:
-            m = message.partition(' ')
-            name = m[0]
-            value = int(m[2])
+            name, _, value = message.partition(' ')
+            value = int(value)
         except:
             return self.say(sender, 'Invalid syntax: +counter add <name> <integer>')
 
@@ -1175,9 +1163,7 @@ class BotCountersMixin(object):
             return
 
         try:
-            m = message.partition(' ')
-            name = m[0]
-            reply = m[2]
+            name, _, reply = message.partition(' ')
         except IndexError:
             return self.say(sender, 'Invalid syntax: +counter reply <name> <text>')
 
