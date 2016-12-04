@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-# -*- coding: utf-8 -*-
 import re
+import pickle
 from collections import namedtuple, OrderedDict
 from datetime import datetime, timedelta
 
@@ -28,7 +29,7 @@ CHANNELS = {
         'lorgon',
         ],
 }
-COMMAND_INITIATION_SYMBOL = u'+'
+COMMAND_INITIATION_SYMBOL = '+'
 
 DEBUG = False
 
@@ -72,7 +73,6 @@ class BufferNicklist(object):
         for user in nicklist:
             print(user.prefix + user.nick)
     """
-    buffer = ''
 
     def __init__(self, buffer):
         self.buffer = buffer
@@ -110,15 +110,14 @@ def is_valid_nick(nick=None):
 # =====================================
 class Timer(object):
     """Simple Timer object, to measure times and keep split times."""
-    name = None
-    running = False
-    splits = OrderedDict()
-    start_time = None
-    stop_time = None
 
-    def __init__(self, name=u"timer"):
+    def __init__(self, name="timer"):
         """Initialise the timer."""
         self.name = name
+        self.running = False
+        self.splits = OrderedDict()
+        self.start_time = None
+        self.stop_time = None
 
     # =====================================
     # Logic
@@ -230,11 +229,6 @@ class WeechatBot(object):
     """Bot for weechat that can read messages and reply.
 
     This is the "IRC" layer. Some other class can be dropped in here."""
-    network = None
-    channel = None
-    buffer = None
-    muted = False
-    owner = None
 
     # Initialisation stuff
     # --------------------------------
@@ -243,14 +237,16 @@ class WeechatBot(object):
         self.network = kwargs.pop('network', '')
         self.channel = kwargs.pop('channel', '')
         self.buffer = weechat.info_get('irc_buffer', '{},#{}'.format(self.network, self.channel))
-        self.owner = [self.get_own_nick()]
 
-        # this feels really awkward, see https://weechat.org/scripts/source/pybuffer.py.html/
-        self.__name__ = "{}_{}".format(network, channel)
-        self._callback = callback(self.callback)
-        self._pointer = weechat.hook_print(self.buffer, 'irc_privmsg', '', 1, self._callback, '')
+        self.setup_callback()
 
         super(WeechatBot, self).__init__(*args, **kwargs)
+
+    def setup_callback(self):
+        # this feels really awkward, see https://weechat.org/scripts/source/pybuffer.py.html/
+        self.__name__ = '{}_{}'.format(self.network, self.channel)
+        self._callback = callback(self.callback)
+        self._pointer = weechat.hook_print(self.buffer, 'irc_privmsg', '', 1, self._callback, '')
 
     def callback(self, data, buffer, date, tags, displayed, highlight, prefix, message):
         """Receive a message from the IRC client and turn it over to the bot."""
@@ -264,6 +260,13 @@ class WeechatBot(object):
         )
         self.dispatch(sender, message.strip()[1:])
         return weechat.WEECHAT_RC_OK
+
+    def clean_state(self, state):
+        """Remove some instance variables from state, that may not survive loading."""
+        state.pop('_callback')
+        state.pop('_pointer')
+        state.pop('buffer')
+        return super(WeechatBot, self).clean_state(state)
 
     # IRC stuff
     # --------------------------------
@@ -283,6 +286,12 @@ class WeechatBot(object):
 
         return nicklist
 
+    def get_owner(self):
+        """"""
+        owner = [self.get_own_nick()]
+        super_owner = super(WeechatBot, self).get_owner()
+        return list(set(owner) | set(super_owner))
+
     def nick_in_chat(self, nick):
         """Return whether or not the given nick is currently in chat."""
         return weechat.nicklist_search_nick(self.buffer, "", nick)
@@ -294,54 +303,57 @@ class WeechatBot(object):
 class BaseBot(object):
     """Bot functionality."""
 
-    ops = []
-    regulars = []
-    blacklist = []
-    muted = False
-    previous_response = u''
-    commands = {}
-
     # Stuff needed for initialisation:
     # --------------------------------
     def __init__(self, *args, **kwargs):
-        self.muted = self.get_muted()
-        self.owner = self.get_owner()
-        self.ops = self.get_ops()
-        self.regulars = self.get_regulars()
-        self.blacklist = self.get_blacklist()
-        super(BaseBot, self).__init__(*args, **kwargs)
+        self.name = kwargs.pop('name')
+        if not self.load():
+            self.owner = []
+            self.ops = []
+            self.regulars = []
+            self.blacklist = []
+            self.muted = False
+            self.previous_response = ''
+            self.previous_response_time = None
+            self.previous_response_time = datetime.now()
+
+    def save(self):
+        """Pickle instance variables dict and save it to a file."""
+        state = self.__dict__.copy()
+        state = self.clean_state(state)
+        with open(self.name, 'w') as f:
+            pickle.dump(state, f)
+
+    def load(self):
+        """Load state from a file and unpickle instance variables."""
+        try:
+            with open(self.name, 'r+') as f:
+                state = pickle.load(f)
+                self.__dict__.update(state)
+            debug('Successfully loaded state.')
+            return True
+        except:
+            return False
+
+    def clean_state(self, state):
+        """Remove some instance variables from state that would not survive loading (if any)."""
+        return state
 
     def get_owner(self):
         """Return the owner for the current channel."""
-        return self.owner
+        return getattr(self, 'owner', [])
 
     def get_ops(self):
         """Return a list of ops for the current channel."""
-        # TODO: look in database
-        return self.ops
-
-    # this line allows get_ops() to overwritten by subclasses and still be accessed internally
-    # uses name mangling.
-    __get_ops = get_ops
+        return getattr(self, 'ops', [])
 
     def get_regulars(self):
         """Return a list of regulars for the current channel."""
-        # TODO: look in database
-        return self.regulars
-
-    __get_regulars = get_regulars
+        return getattr(self, 'regulars', [])
 
     def get_blacklist(self):
         """Return a list of blacklisted users for the current channel."""
-        # TODO: look in database
-        return self.blacklist
-
-    __get_blacklist = get_blacklist
-
-    def get_muted(self):
-        """Return whether or not the bot is muted for the current channel."""
-        # TODO: look in database
-        return False
+        return getattr(self, 'blacklist', [])
 
     # Helper methods
     # --------------------------------
@@ -349,10 +361,8 @@ class BaseBot(object):
         """Return whether or not the user can use owner commands."""
         if isinstance(user, User):
             nick = user.nick
-            prefix = user.prefix
         else:
             nick = user
-            prefix = ''
 
         return nick in self.get_owner()
 
@@ -360,23 +370,19 @@ class BaseBot(object):
         """Return whether or not the user can use op commands."""
         if isinstance(user, User):
             nick = user.nick
-            prefix = user.prefix
         else:
             nick = user
-            prefix = ''
 
-        return '@' in prefix or nick in self.get_ops() or self.can_use_owner(nick)
+        return nick in self.get_ops() or self.can_use_owner(user)
 
     def can_use_regular(self, user):
         """Return whether or not the user can use regular commands."""
         if isinstance(user, User):
             nick = user.nick
-            prefix = user.prefix
         else:
             nick = user
-            prefix = ''
 
-        return '%' in prefix or nick in self.get_regulars() or self.can_use_op(user)
+        return nick in self.get_regulars() or self.can_use_op(user)
 
     def is_blacklisted(self, user):
         """Return whether or not the user is blacklisted and ignored by the bot."""
@@ -426,7 +432,9 @@ class BaseBot(object):
             return False
 
         self.muted = True
-        return self.say(sender, "I'll shut up.", force=True)
+        self.say(sender, "I'll shut up.", force=True)
+        self.save()
+        return True
 
     def command_unmute(self, sender, args):
         """Unmute the bot. Ops only."""
@@ -434,7 +442,9 @@ class BaseBot(object):
             return False
 
         self.muted = False
-        return self.say(sender, "I can speak!")
+        self.say(sender, "I can speak!")
+        self.save()
+        return True
 
     def command_ops(self, sender, args):
         """Return a list of nicks that can use op commands."""
@@ -445,19 +455,22 @@ class BaseBot(object):
 
     def command_op(self, sender, nick):
         """Add nick to list of ops. Owner only. Syntax: +op <nick>"""
-        if sender.nick not in self.get_owner():
+        if not self.can_use_owner(sender):
             return
 
         if not is_valid_nick(nick):
             return self.say(sender, "That is not a valid nick.")
 
-        if nick not in self.ops:
-            self.ops.append(nick)
-            self.say(sender, "Ok, {} is now op.".format(nick))
+        if nick in self.ops:
+            return self.say(sender, '{} is already op.')
+
+        self.ops.append(nick)
+        self.say(sender, "Ok, {} is now op.".format(nick))
+        self.save()
 
     def command_deop(self, sender, nick):
         """Remove nick from list of ops. Owner only. Syntax: +deop <nick>"""
-        if sender.nick not in self.get_owner():
+        if not self.can_use_owner(sender):
             return
 
         if not is_valid_nick(nick):
@@ -466,6 +479,7 @@ class BaseBot(object):
         if nick in self.ops:
             self.ops.remove(nick)
             self.say(sender, "Ok, {} is no longer op.".format(nick))
+            self.save()
 
     def command_amiop(self, sender, args):
         """Tells you if you are an op."""
@@ -487,11 +501,12 @@ class BaseBot(object):
             return
 
         if not is_valid_nick(nick):
-            self.say(sender, "That is not a valid nick.")
+            self.say(sender, 'That is not a valid nick.')
 
         if nick not in self.regulars:
             self.regulars.append(nick)
-            self.say(sender, "OK, {} is a regular.".format(nick))
+            self.say(sender, 'OK, {} is a regular.'.format(nick))
+            self.save()
 
     def command_deregular(self, sender, nick):
         """Remove nick from list of regulars. Ops only. Syntax: +deregular <nick>"""
@@ -499,18 +514,19 @@ class BaseBot(object):
             return
 
         if not is_valid_nick(nick):
-            self.say(sender, "That is not a valid nick.")
+            self.say(sender, 'That is not a valid nick.')
 
         if nick in self.regulars:
             self.regulars.remove(nick)
-            self.say(sender, "OK, {} is no longer a regular.".format(nick))
+            self.say(sender, 'OK, {} is no longer a regular.'.format(nick))
+            self.save()
 
     def command_amiregular(self, sender, args):
         """Tells you if you are regulars."""
         if self.can_use_regular(sender):
-            self.say(sender, "{}, you are a regular.".format(sender.nick))
+            self.say(sender, '{}, you are a regular.'.format(sender.nick))
         else:
-            self.say(sender, "Sorry, {}, you are not a regular.".format(sender.nick))
+            self.say(sender, 'Sorry, {}, you are not a regular.'.format(sender.nick))
 
     def command_ignore(self, sender, nick):
         """Add a nick to the blacklist, preventing that person from interacting with the bot. Ops only. Syntax: +ignore <nick>"""
@@ -523,6 +539,7 @@ class BaseBot(object):
         if nick not in self.blacklist:
             self.blacklist.append(nick)
             self.say(sender, 'Ok, I\'ll ignore {}.'.format(nick))
+            self.save()
         else:
             self.say(sender, '{} is already blacklisted.'.format(nick))
 
@@ -537,6 +554,7 @@ class BaseBot(object):
         if nick in self.blacklist:
             self.blacklist.remove(nick)
             self.say(sender, 'Ok, I\'ll no longer ignore {}.'.format(nick))
+            self.save()
         else:
             self.say(sender, '{} is not blacklisted.'.format(nick))
 
@@ -569,14 +587,25 @@ class BotTwitchMixin(object):
     """Add twitch specific functionality."""
 
     def can_use_owner(self, user):
-        super_owner = super(BotTwitchMixin, self).can_use_owner(user)
-
         if isinstance(user, User):
-            prefix = user.prefix
-        else:
-            prefix = ''
+            if '~' in user.prefix:
+                return True
 
-        return super_owner or '~' in prefix
+        return super(BotTwitchMixin, self).can_use_owner(user)
+
+    def can_use_op(self, user):
+        if isinstance(user, User):
+            if '@' in user.prefix:
+                return True
+
+        return super(BotTwitchMixin, self).can_use_op(user)
+
+    def can_use_regular(self, user):
+        if isinstance(user, User):
+            if '%' in user.prefix:
+                return True
+
+        return super(BotTwitchMixin, self).can_use_regular(user)
 
     def get_streamer(self):
         return self.channel
@@ -599,7 +628,9 @@ class BotTwitchMixin(object):
 
 class BotFunMixin(object):
     """Add some simple fun commands to the bot."""
-    charm = 'ConeDodger240'
+    def __init__(self, *args, **kwargs):
+        self.charm = 'ConeDodger240'
+        super(BotFunMixin, self).__init__(*args, **kwargs)
 
     def command_luck(self, sender, args):
         """Check if the "good luck charm" is in chat."""
@@ -623,8 +654,10 @@ class BotFunMixin(object):
 class BotTimerMixin(object):
     """Add timer functionality to the bot."""
 
-    active_timer = None
-    timers = OrderedDict()
+    def __init__(self, *args, **kwargs):
+        self.active_timer = None
+        self.timers = OrderedDict()
+        super(BotTimerMixin, self).__init__(*args, **kwargs)
 
     def command_timer(self, sender, args):
         """Performs timer related actions: new, del, start, stop, restart, split, resplit, delsplit, status, report, list, active, rename, adjust, adjustsplit. Syntax: +timer [action] ; +timer without an action is equivalent to +timer status"""
@@ -669,6 +702,7 @@ class BotTimerMixin(object):
         self.active_timer = name
         self.timers[name] = Timer(name=name)
         self.say(sender, 'Timer "{}" has been created.'.format(name))
+        self.save()
 
     def timer_del(self, sender, args):
         """Remove a timer. Ops only. Syntax: +timer del <name>"""
@@ -687,6 +721,7 @@ class BotTimerMixin(object):
             self.active_timer = None
         self.timers.pop(name, None)
         self.say(sender, 'Timer "{}" has been removed.'.format(name))
+        self.save()
 
     def timer_start(self, sender, args):
         """Starts the named timer or the active timer. Regulars only. Syntax: +timer start [name]"""
@@ -706,6 +741,7 @@ class BotTimerMixin(object):
 
         self.timers[name].start()
         self.say(sender, 'Timer "{}" has been started.'.format(name))
+        self.save()
 
     def timer_stop(self, sender, args):
         """Stops the named timer or the active timer. Regulars only. Syntax: +timer stop [name]"""
@@ -725,6 +761,7 @@ class BotTimerMixin(object):
 
         self.timers[name].stop()
         self.say(sender, 'Timer "{}" has been stopped: {}'.format(name, self.timers[name].elapsed))
+        self.save()
 
     def timer_restart(self, sender, args):
         """Restart a named timer or the active timer. Regulars only. Syntax: +timer restart [name]"""
@@ -744,6 +781,7 @@ class BotTimerMixin(object):
 
         self.timers[name].restart()
         self.say(sender, 'Timer "{}" has been restarted.'.format(name))
+        self.save()
 
     def timer_split(self, sender, args):
         """Create a split for the named or active timer. Regulars only. +timer split <split name> [timer name]"""
@@ -772,6 +810,7 @@ class BotTimerMixin(object):
 
         self.timers[timername].split(splitname)
         self.say(sender, 'Split "{}" has been created: {}'.format(splitname, self.timers[timername].splits[splitname]))
+        self.save()
 
     def timer_resplit(self, sender, args):
         """Update a split time for the named or active timer. Regulars only. Syntax: +timer resplit <split name> [timer name]"""
@@ -797,6 +836,7 @@ class BotTimerMixin(object):
         self.timers[timername].splits.pop(splitname)
         self.timers[timername].split(splitname)
         self.say(sender, 'Split "{}" has been updated: {}'.format(splitname, self.timers[timername].splits[splitname]))
+        self.save()
 
     def timer_delsplit(self, sender, args):
         """Remove a split from the named or active timer. Ops only. Syntax: +timer delsplit <split name> [timer name]"""
@@ -821,6 +861,7 @@ class BotTimerMixin(object):
 
         self.timers[timername].splits.pop(splitname)
         self.say(sender, 'Split "{}" has been removed from timer "{}".'.format(splitname, timername))
+        self.save()
 
     def timer_status(self, sender, args):
         """Give the status of named or active timer. Syntax: +timer status [name]"""
@@ -879,15 +920,15 @@ class BotTimerMixin(object):
             return
 
         if len(self.timers) == 0:
-            return self.say(sender, 'No timers active.')
+            return self.say(sender, 'No timers exist.')
 
         keys = []
         for k, t in self.timers.items():
             name = k
             if t.running:
-                name += '*'
+                name += ' (running)'
             if k == self.active_timer:
-                name += '!'
+                name += ' (active)'
             keys.append(name)
         timers = ', '.join(keys)
         self.say(sender, 'Known timers: {}'.format(timers))
@@ -907,6 +948,7 @@ class BotTimerMixin(object):
 
         self.active_timer = name
         self.say(sender, 'Timer "{}" is now active.'.format())
+        self.save()
 
     def timer_rename(self, sender, args):
         """Rename a timer. Ops only. Syntax +timer rename <oldname> <newname>"""
@@ -929,6 +971,7 @@ class BotTimerMixin(object):
         if oldname == self.active_timer:
             self.active_timer = newname
         self.say(sender, 'Timer "{}" has been renamed to "{}"'.format(oldname, newname))
+        self.save()
 
     def timer_adjust(self, sender, args):
         """Add or remove seconds from the timer to adjust the time. Ops only. Syntax: +timer adjust <seconds>"""
@@ -954,6 +997,7 @@ class BotTimerMixin(object):
             seconds,
             self.timers[timername].elapsed
         ))
+        self.save()
 
     def timer_adjustsplit(self, sender, args):
         """Add or remove some seconds to the split time. Ops only. Syntax: +timer adjustsplit <split name> <seconds> [timer name]"""
@@ -976,11 +1020,15 @@ class BotTimerMixin(object):
 
         self.timers[timername].adjustsplit(splitname, seconds)
         self.say(sender, 'Split "{}" has been updated: {}'.format(splitname, self.timers[timername].splits[splitname]))
+        self.save()
 
 
 class BotCustomizableReplyMixin(object):
     """Add custom commands."""
-    custom_replies = {}
+
+    def __init__(self, *args, **kwargs):
+        self.custom_replies = {}
+        super(BotCustomizableReplyMixin, self).__init__(*args, **kwargs)
 
     def listcommands(self):
         super_list = super(BotCustomizableReplyMixin, self).listcommands()
@@ -1002,6 +1050,7 @@ class BotCustomizableReplyMixin(object):
 
         self.custom_replies[name] = text
         self.say(sender, 'Command "{}" has been set to "{}".'.format(name, text))
+        self.save()
         return True
 
     def command_unset(self, sender, message):
@@ -1017,6 +1066,7 @@ class BotCustomizableReplyMixin(object):
 
         self.custom_replies.pop(message)
         self.say(sender, 'Command "{}" has been removed.'.format(message))
+        self.save()
         return True
 
     def dispatch(self, sender, message):
@@ -1033,7 +1083,11 @@ class BotCustomizableReplyMixin(object):
 
 
 class BotCountersMixin(object):
-    counters = {}
+    """"""
+
+    def __init__(self, *args, **kwargs):
+        self.counters = {}
+        super(BotCountersMixin, self).__init__(*args, **kwargs)
 
     def listcommands(self):
         super_list = super(BotCountersMixin, self).listcommands()
@@ -1102,6 +1156,7 @@ class BotCountersMixin(object):
             'reply': reply,
         }
         self.say(sender, 'Counter "{}" has been created.'.format(name))
+        self.save()
 
     def counter_del(self, sender, message):
         """Remove a counter. Ops only. Syntax: +counter del <name>"""
@@ -1118,6 +1173,7 @@ class BotCountersMixin(object):
 
         self.counters.pop(name)
         self.say(sender, 'Counter "{}" has been removed.'.format(name))
+        self.save()
 
     def counter_list(self, sender, message):
         """Show a list of counters. Syntax: +counter list"""
@@ -1139,6 +1195,7 @@ class BotCountersMixin(object):
 
         self.counters[name]['value'] = value
         self.say(sender, 'Counter "{}" is now: {}'.format(name, value))
+        self.save()
 
     def counter_add(self, sender, message):
         """Add a value to the counter. Ops only. Syntax: +counter add <name> <integer>"""
@@ -1156,6 +1213,7 @@ class BotCountersMixin(object):
 
         self.counters[name]['value'] += value
         self.say(sender, 'Counter "{}" is now: {}'.format(name, self.counters[name]['value']))
+        self.save()
 
     def counter_reply(self, sender, message):
         """Change the reply of a counter without changing the value. Ops only. Syntax: +counter reply <name> <text>"""
@@ -1172,6 +1230,7 @@ class BotCountersMixin(object):
 
         self.counters[name]['reply'] = reply
         self.say(sender, 'Counter "{}" has been updated.'.format(name))
+        self.save()
 
 
 class Bot(BotCountersMixin, BotCustomizableReplyMixin, BotTimerMixin, BotFunMixin, BotTwitchMixin, WeechatBot, BaseBot):
@@ -1225,4 +1284,4 @@ if __name__ == '__main__' and import_ok:
     for network, channels in CHANNELS.items():
         for channel in channels:
             key = '{network}_{channel}'.format(network=network, channel=channel)
-            bots[key] = Bot(network=network, channel=channel)
+            bots[key] = Bot(name=key, network=network, channel=channel)
