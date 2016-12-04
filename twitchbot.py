@@ -39,6 +39,10 @@ def debug(text):
         weechat.prnt("", str(text))
 
 
+class NotImplemented(Exception):
+    pass
+
+
 # =====================================
 # Weechat API Wrappers
 # =====================================
@@ -225,81 +229,6 @@ class Timer(object):
 # =====================================
 # Bot objects
 # =====================================
-class WeechatBot(object):
-    """Bot for weechat that can read messages and reply.
-
-    This is the "IRC" layer. Some other class can be dropped in here."""
-
-    # Initialisation stuff
-    # --------------------------------
-    def __init__(self, *args, **kwargs):
-        """Connect this bot instance to a channel on the network."""
-        self.network = kwargs.pop('network', '')
-        self.channel = kwargs.pop('channel', '')
-        self.buffer = weechat.info_get('irc_buffer', '{},#{}'.format(self.network, self.channel))
-
-        self.setup_callback()
-
-        super(WeechatBot, self).__init__(*args, **kwargs)
-
-    def setup_callback(self):
-        # this feels really awkward, see https://weechat.org/scripts/source/pybuffer.py.html/
-        self.__name__ = '{}_{}'.format(self.network, self.channel)
-        self._callback = callback(self.callback)
-        self._pointer = weechat.hook_print(self.buffer, 'irc_privmsg', '', 1, self._callback, '')
-
-    def callback(self, data, buffer, date, tags, displayed, highlight, prefix, message):
-        """Receive a message from the IRC client and turn it over to the bot."""
-        if not message.startswith(COMMAND_INITIATION_SYMBOL):
-            return weechat.WEECHAT_RC_OK
-
-        sender_data = re.match(r'([~@%]?)(.*)', prefix)
-        sender = User(
-            prefix=sender_data.group(1).strip(),
-            nick=sender_data.group(2).strip(),
-        )
-        self.dispatch(sender, message.strip()[1:])
-        return weechat.WEECHAT_RC_OK
-
-    def clean_state(self, state):
-        """Remove some instance variables from state, that may not survive loading."""
-        state.pop('_callback')
-        state.pop('_pointer')
-        state.pop('buffer')
-        return super(WeechatBot, self).clean_state(state)
-
-    # IRC stuff
-    # --------------------------------
-    def irc_say(self, text):
-        """Send a text to the channel."""
-        weechat.command(self.buffer, text)
-
-    def get_nicklist(self):
-        """Get a list of people in chat."""
-        return BufferNicklist(self.buffer)
-
-    def get_ops(self):
-        """Get a list of channel members who are ops."""
-        super_nicklist = super(WeechatBot, self).get_ops()
-        nicklist = [n.nick for n in self.get_nicklist() if '@' in n.prefix]
-        nicklist = list(set(super_nicklist) | set(nicklist))
-
-        return nicklist
-
-    def get_owner(self):
-        """"""
-        owner = [self.get_own_nick()]
-        super_owner = super(WeechatBot, self).get_owner()
-        return list(set(owner) | set(super_owner))
-
-    def nick_in_chat(self, nick):
-        """Return whether or not the given nick is currently in chat."""
-        return weechat.nicklist_search_nick(self.buffer, "", nick)
-
-    def get_own_nick(self):
-        return weechat.buffer_get_string(self.buffer, "localvar_nick")
-
-
 class BaseBot(object):
     """Bot functionality."""
 
@@ -339,8 +268,10 @@ class BaseBot(object):
         """Remove some instance variables from state that would not survive loading (if any)."""
         return state
 
+    # Authentication methods
+    # --------------------------------
     def get_owner(self):
-        """Return the owner for the current channel."""
+        """Return the list of owners for the current channel."""
         return getattr(self, 'owner', [])
 
     def get_ops(self):
@@ -355,8 +286,6 @@ class BaseBot(object):
         """Return a list of blacklisted users for the current channel."""
         return getattr(self, 'blacklist', [])
 
-    # Helper methods
-    # --------------------------------
     def can_use_owner(self, user):
         """Return whether or not the user can use owner commands."""
         if isinstance(user, User):
@@ -392,10 +321,24 @@ class BaseBot(object):
             nick = user
         return nick in self.get_blacklist()
 
+    # Helper methods
+    # --------------------------------
     def listcommands(self):
         """Return a list of known commands."""
         d = dir(self)
         return [m.replace('command_', '') for m in d if m.startswith('command_')]
+
+    def get_nicklist(self):
+        """Return the list of users in chat. Needs to be implemented by subclasses!"""
+        raise NotImplemented
+
+    def nick_in_chat(self, nick):
+        """Return whether or not the given nick is currently in chat."""
+        return nick in self.get_nicklist()
+
+    def get_own_nick(self):
+        """Return the username of the bot. Needs to be implemented by subclasses."""
+        raise NotImplemented
 
     # Dispatching
     # --------------------------------
@@ -407,14 +350,17 @@ class BaseBot(object):
             debug('User {} is blacklisted: {}'.format(sender.nick, message))
             return True
 
+        # Split command and arguments
         command, _, args = message.partition(' ')
 
-        # derive method name and call it.
+        # derive method name and call it with given arguments.
         try:
             method = getattr(self, 'command_{}'.format(command))
             method(sender, args)
             return True
+        # or maybe the command does not exist.
         except AttributeError:
+            debug('Command "{}" does not exist.'.format(command))
             return False
 
     def say(self, sender, text, force=False):
@@ -424,8 +370,94 @@ class BaseBot(object):
             self.irc_say(text)
             return True
 
-    # Commands
+    def irc_say(self, text):
+        """This method is a stub and should be implemented by some IRC layer subclass."""
+        raise NotImplemented
+
+
+class WeechatBot(BaseBot):
+    """Subclass of BaseBot.
+
+    This is the "IRC" layer that works as an adapter for BaseBot. Some other IRC
+    protocol API can beimplemented here."""
+
+    # Initialisation stuff
     # --------------------------------
+    def __init__(self, *args, **kwargs):
+        """Connect this bot instance to a channel on the network."""
+        self.network = kwargs.pop('network', '')
+        self.channel = kwargs.pop('channel', '')
+        self.buffer = weechat.info_get('irc_buffer', '{},#{}'.format(self.network, self.channel))
+
+        self.setup_callback()
+
+        super(WeechatBot, self).__init__(*args, **kwargs)
+
+    def setup_callback(self):
+        # this feels really awkward, see https://weechat.org/scripts/source/pybuffer.py.html/
+        self.__name__ = '{}_{}'.format(self.network, self.channel)
+        self._callback = callback(self.callback)
+        self._pointer = weechat.hook_print(self.buffer, 'irc_privmsg', '', 1, self._callback, '')
+
+    def callback(self, data, buffer, date, tags, displayed, highlight, prefix, message):
+        """Receive a message from the IRC client and turn it over to the bot."""
+        if not message.startswith(COMMAND_INITIATION_SYMBOL):
+            return weechat.WEECHAT_RC_OK
+
+        sender_data = re.match(r'([~@%]?)(.*)', prefix)
+        sender = User(
+            prefix=sender_data.group(1).strip(),
+            nick=sender_data.group(2).strip(),
+        )
+        self.dispatch(sender, message.strip()[1:])
+        return weechat.WEECHAT_RC_OK
+
+    def clean_state(self, state):
+        """Remove some instance variables from state, that may not survive loading."""
+        state.pop('_callback')
+        state.pop('_pointer')
+        state.pop('buffer')
+        return super(WeechatBot, self).clean_state(state)
+
+    # Dispatching
+    # --------------------------------
+    def irc_say(self, text):
+        """Send a text to the channel."""
+        weechat.command(self.buffer, text)
+
+    # Authentication methods
+    # --------------------------------
+    def get_owner(self):
+        """Return the list of owners."""
+        owner = [self.get_own_nick()]
+        super_owner = super(WeechatBot, self).get_owner()
+        return list(set(owner) | set(super_owner))
+
+    def get_ops(self):
+        """Get a list of channel members who are ops."""
+        super_nicklist = super(WeechatBot, self).get_ops()
+        nicklist = [n.nick for n in self.get_nicklist() if '@' in n.prefix]
+        nicklist = list(set(super_nicklist) | set(nicklist))
+
+        return nicklist
+
+    # Helper methods
+    # --------------------------------
+    def get_nicklist(self):
+        """Get a list of people in chat."""
+        return BufferNicklist(self.buffer)
+
+    def nick_in_chat(self, nick):
+        """Return whether or not the given nick is currently in chat."""
+        return weechat.nicklist_search_nick(self.buffer, "", nick)
+
+    def get_own_nick(self):
+        """Return the username of the bot."""
+        return weechat.buffer_get_string(self.buffer, "localvar_nick")
+
+
+class BaseCommandsBot(object):
+    """Some very basic commands. Just enough to make the bot somewhat useful."""
     def command_mute(self, sender, args):
         """Mute the bot, it will stop talking but still execute things. Ops only."""
         if not self.can_use_op(sender):
@@ -587,6 +619,7 @@ class BotTwitchMixin(object):
     """Add twitch specific functionality."""
 
     def can_use_owner(self, user):
+        """Return True if the user can use owner commands."""
         if isinstance(user, User):
             if '~' in user.prefix:
                 return True
@@ -594,6 +627,7 @@ class BotTwitchMixin(object):
         return super(BotTwitchMixin, self).can_use_owner(user)
 
     def can_use_op(self, user):
+        """Return True if the user can use op commands."""
         if isinstance(user, User):
             if '@' in user.prefix:
                 return True
@@ -601,6 +635,7 @@ class BotTwitchMixin(object):
         return super(BotTwitchMixin, self).can_use_op(user)
 
     def can_use_regular(self, user):
+        """Return True if the user can use regulars commands."""
         if isinstance(user, User):
             if '%' in user.prefix:
                 return True
@@ -608,6 +643,7 @@ class BotTwitchMixin(object):
         return super(BotTwitchMixin, self).can_use_regular(user)
 
     def get_streamer(self):
+        """Return name of the streamer (which is the same as the channel)."""
         return self.channel
 
     def get_owner(self):
@@ -619,11 +655,11 @@ class BotTwitchMixin(object):
     #    """Return a list of regulars, make sure that subscribers are also regulars."""
 
     def command_chatters(self, sender, args):
-        """Return the number of users in chat."""
+        """Return the number of viewers in chat."""
         self.say(sender, 'There are {} chatters.'.format(len(self.get_nicklist())))
 
     #def command_viewers(self, sender, args):
-    #    """"""
+    #    """Report the number of viewers of the stream."""
 
 
 class BotFunMixin(object):
@@ -675,7 +711,7 @@ class BotTimerMixin(object):
         return method(sender, args)
 
     def help_timer(self, sender, args):
-        """"""
+        """Determine which action is being used and display the docstring for the corresponding method."""
         if args is None:
             return self.say(sender, getattr(self, 'command_timer').__doc__)
 
@@ -1104,6 +1140,7 @@ class BotCountersMixin(object):
             value = self.counters[message]['value']
             reply = self.counters[message]['reply']
             self.say(sender, reply.format(value))
+            self.save()
             return True
 
         return False
@@ -1124,8 +1161,8 @@ class BotCountersMixin(object):
         return method(sender, message)
 
     def help_counter(self, sender, args):
-        """"""
-        if args is None:
+        """Determine the action being used and display the corresponding method's docstring."""
+        if args is '':
             return self.say(sender, getattr(self, 'command_counter').__doc__)
 
         action = args.split()[0]
@@ -1233,7 +1270,13 @@ class BotCountersMixin(object):
         self.save()
 
 
-class Bot(BotCountersMixin, BotCustomizableReplyMixin, BotTimerMixin, BotFunMixin, BotTwitchMixin, WeechatBot, BaseBot):
+class Bot(BotCountersMixin,
+          BotCustomizableReplyMixin,
+          BotTimerMixin,
+          BotFunMixin,
+          BotTwitchMixin,
+          BaseCommandsBot,
+          WeechatBot):
     def __init__(self, *args, **kwargs):
         super(self.__class__, self).__init__(*args, **kwargs)
 
