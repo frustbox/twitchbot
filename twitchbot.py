@@ -242,9 +242,25 @@ class Timer(object):
         self.running = True
         return True
 
+    def resplit(self, name):
+        """Recreate a split."""
+        if not self.running:
+            return False
+
+        if name not in self.splits.keys():
+            return False
+
+        self.splits[name] = self.elapsed
+        return True
+
     # =====================================
     # Information
     # =====================================
+    def has_split(self, name):
+        return name in self.splits.keys()
+
+    def get_split(self, name):
+        return self.splits[name]
     @property
     def elapsed(self):
         """Return the elapsed time on the timer."""
@@ -867,7 +883,7 @@ class BotTimerMixin(object):
         self.save()
 
     def timer_split(self, sender, args):
-        """Create a split for the named or active timer. Regulars only. {symbol}timer split <split name> [timer name]"""
+        """Create a split for the named or active timer. Regulars only. Syntax: {symbol}timer split <split name> [timer name]"""
         if not self.can_use_regular(sender):
             return
 
@@ -891,8 +907,9 @@ class BotTimerMixin(object):
         if splitname in timer.splits.keys():
             return self.say(sender, 'Split "{}" already exists.'.format(splitname))
 
-        self.timers[timername].split(splitname)
-        self.say(sender, 'Split "{}" has been created: {}'.format(splitname, self.timers[timername].splits[splitname]))
+        timer.split(splitname)
+        splittime = timer.splits[splitname]
+        self.say(sender, 'Split "{split}" has been created: {time}'.format(split=splitname, time=splittime))
         self.save()
 
     def timer_resplit(self, sender, args):
@@ -913,12 +930,16 @@ class BotTimerMixin(object):
         if timername not in self.timers.keys():
             return self.say(sender, 'Timer "{}" does not exist.'.format(timername))
 
-        if splitname not in self.timers[timername].splits.keys():
+        timer = self.timers[timername]
+
+        if not timer.has_split(splitname):
             return self.say(sender, 'Split "{}" does not exist.'.format(splitname))
 
-        self.timers[timername].splits.pop(splitname)
-        self.timers[timername].split(splitname)
-        self.say(sender, 'Split "{}" has been updated: {}'.format(splitname, self.timers[timername].splits[splitname]))
+        timer.resplit(splitname)
+        splittime = timer.get_split(splitname)
+        self.say(sender, 'Split "{name}" has been updated: {time}'.format(
+            name=splitname,
+            time=splittime))
         self.save()
 
     def timer_delsplit(self, sender, args):
@@ -939,10 +960,10 @@ class BotTimerMixin(object):
         if timername not in self.timers.keys():
             return self.say(sender, 'Timer "{}" does not exist.'.format(timername))
 
-        if splitname not in self.timers[timername].splits.keys():
+        if self.timers[timername].has_split(splitname):
             return self.say(sender, 'Split "{}" does not exist.'.format(splitname))
 
-        self.timers[timername].splits.pop(splitname)
+        self.timers[timername].removesplit(splitname)
         self.say(sender, 'Split "{}" has been removed from timer "{}".'.format(splitname, timername))
         self.save()
 
@@ -981,19 +1002,16 @@ class BotTimerMixin(object):
             return self.say(sender, 'Timer "{}" does not exist.'.format(name))
 
         timer = self.timers[name]
-        running = timer.running
-        elapsed = timer.elapsed
-        stopped = timer.stopped
         splits = timer.splits_string
 
-        if running and splits:
-            return self.say(sender, 'Timer "{}" running: {} with splits: {}'.format(name, elapsed, splits))
-        elif running:
-            return self.say(sender, 'Timer "{}" running: {} without splits.'.format(name, elapsed))
-        elif stopped and splits:
-            return self.say(sender, 'Timer "{}" stopped: {} with splits: {}'.format(name, elapsed, splits))
-        elif stopped:
-            return self.say(sender, 'Timer "{}" stopped: {} without splits.'.format(name, elapsed))
+        if timer.running and splits:
+            return self.say(sender, 'Timer "{}" running: {} with splits: {}'.format(name, timer.elapsed, timer.splits_string))
+        elif timer.running:
+            return self.say(sender, 'Timer "{}" running: {} without splits.'.format(name, timer.elapsed))
+        elif timer.stopped and timer.splits_string:
+            return self.say(sender, 'Timer "{}" stopped: {} with splits: {}'.format(name, timer.elapsed, timer.splits_string))
+        elif timer.stopped:
+            return self.say(sender, 'Timer "{}" stopped: {} without splits.'.format(name, timer.elapsed))
         else:
             return self.say(sender, 'Timer "{}" has not been started yet.'.format(name))
 
@@ -1098,11 +1116,13 @@ class BotTimerMixin(object):
         except IndexError:
             timername = self.active_timer
 
-        if splitname not in self.timers[timername].splits.keys():
+        timer = self.timers[timername]
+
+        if timer.has_split(splitname):
             return self.say(sender, 'Split "{}" does not exist in timer "{}".'.format(splitname, timername))
 
-        self.timers[timername].adjustsplit(splitname, seconds)
-        self.say(sender, 'Split "{}" has been updated: {}'.format(splitname, self.timers[timername].splits[splitname]))
+        timer.adjustsplit(splitname, seconds)
+        self.say(sender, 'Split "{}" has been updated: {}'.format(splitname, timer.get_split(splitname)))
         self.save()
 
 
@@ -1117,6 +1137,18 @@ class BotCustomizableReplyMixin(object):
         super_list = super(BotCustomizableReplyMixin, self).listcommands()
         commands = self.custom_replies.keys()
         return super_list + commands
+
+    def dispatch(self, sender, message):
+        # we extend the dispatch method of BaseBot and do nothing if a command has already been executed.
+        if super(BotCustomizableReplyMixin, self).dispatch(sender, message):
+            return True
+
+        if message in self.custom_replies.keys():
+            reply = self.custom_replies[message]
+            self.say(sender, reply)
+            return True
+
+        return False
 
     def command_set(self, sender, message):
         """Define a custom reply message. Ops only. Syntax: {symbol}set <name> <reply>"""
@@ -1152,21 +1184,9 @@ class BotCustomizableReplyMixin(object):
         self.save()
         return True
 
-    def dispatch(self, sender, message):
-        # we extend the dispatch method of BaseBot and do nothing if a command has already been executed.
-        if super(BotCustomizableReplyMixin, self).dispatch(sender, message):
-            return True
-
-        if message in self.custom_replies.keys():
-            reply = self.custom_replies[message]
-            self.say(sender, reply)
-            return True
-
-        return False
-
 
 class BotCountersMixin(object):
-    """"""
+    """Add counters, commands that count how many times they've been called and report the current count."""
 
     def __init__(self, *args, **kwargs):
         self.counters = {}
