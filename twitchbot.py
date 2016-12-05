@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-# -*- coding: utf-8 -*-
 import re
 import pickle
+import requests
 from collections import namedtuple, OrderedDict
 from datetime import datetime, timedelta
 
@@ -107,6 +108,52 @@ def is_valid_nick(nick=None):
         return False
 
     return weechat.info_get('irc_is_nick', nick) == '1'
+
+
+# =====================================
+# Twitter API
+# =====================================
+class TwitterTimeline(object):
+    api_url = 'https://api.twitter.com'
+    api_key = TWITTER_API_KEY
+
+    def __init__(self):
+        self.bearer_token = self.get_bearer_token()
+
+    def get_bearer_token(self):
+        url = '{}{}'.format(self.api_url, '/oauth2/token')
+        headers = {
+            'Authorization': 'Basic {}.'.format(self.api_key),
+            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8.'
+        }
+        response = requests.post(url, headers=headers, data={'grant_type': 'client_credentials'})
+        access_token = response.json()['access_token']
+        return access_token
+
+    def get_timeline(self, handle=None, previous_id=None):
+        if handle is None:
+            return False
+        endpoint = '/1.1/statuses/user_timeline.json'
+
+        url = '{}{}'.format(self.api_url, endpoint)
+        headers = {
+            'Authorization': 'Bearer {}'.format(self.bearer_token),
+        }
+        payload = {
+            'screen_name': handle,
+            'count': '1',
+            'trim_user': 'true',
+            'include_rts': 'false',
+            'exclude_replies': 'true',
+        }
+        if previous_id is not None:
+            payload['since_id'] = previous_id
+
+        response = requests.get(url, headers=headers, params=payload)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return False
 
 
 # =====================================
@@ -1270,7 +1317,84 @@ class BotCountersMixin(object):
         self.save()
 
 
-class Bot(BotCountersMixin,
+class BotTwitterMixin(object):
+    """Implement some twitter functionality."""
+
+    def __init__(self, *args, **kwargs):
+        self.twitter_handle = None
+        self.latest_tweet = {}
+        super(BotTwitterMixin, self).__init__(*args, **kwargs)
+        self.twitter_api = TwitterTimeline()
+        self.setup_twitter_callback()
+
+    def setup_twitter_callback(self):
+        """Setup the callback for the timer."""
+        self._twitter_callback = callback(self.twitter_callback)
+        self._twitter_pointer = weechat.hook_timer(120*1000, 60, 0, self._twitter_callback, '')
+
+    def clean_state(self, state):
+        """Remove some instance variables from state that would not survive loading."""
+        state.pop('twitter_api')
+        state.pop('_twitter_callback')
+        state.pop('_twitter_pointer')
+        return super(BotTwitterMixin, self).clean_state(state)
+
+    def twitter_callback(self, data, remaining_calls):
+        """This method is called by the automatic hook_timer. """
+        latest_tweet = self.get_latest_tweet()
+        if latest_tweet:
+            handle = self.twitter_handle
+            text = ' '.join(latest_tweet['text'].split())
+            id = latest_tweet['id']
+            url = 'https://twitter.com/{handle}/status/{id}/'.format(handle=handle, id=id)
+            self.say(User(prefix='', nick=''), 'Twitter update from @{handle}: "{text}" – {url}'.format(handle=handle, text=text, url=url))
+        return weechat.WEECHAT_RC_OK
+
+    def get_latest_tweet(self):
+        """Get the latest tweet."""
+        previous_id = self.latest_tweet.get('id', None)
+        timeline = self.twitter_api.get_timeline(handle=self.twitter_handle, previous_id=previous_id)
+
+        if timeline:
+            self.latest_tweet = timeline.pop(0)
+            self.save()
+            return self.latest_tweet
+        else:
+            return False
+
+    def command_latest(self, sender, args):
+        """Show the latest tweet from the associated twitter handle. Regulars only. See also: {symbol}help handle"""
+        if not self.can_use_regular(sender):
+            return
+
+        if len(self.latest_tweet) > 0:
+            handle = self.twitter_handle
+            id = self.latest_tweet['id']
+            text = " ".join(self.latest_tweet['text'].split())
+            url = 'https://twitter.com/{handle}/status/{id}/'.format(handle=handle, id=id)
+            self.say(sender, 'Latest tweet by @{handle}: "{text}" – {url}'.format(handle=handle, text=text, url=url))
+            return True
+
+    def command_handle(self, sender, args):
+        """Set the twitter handle for this channel or show currently set handle. Ops only. Syntax: {symbol}handle [twitch username]"""
+        if not self.can_use_op(sender):
+            return
+
+        if args is None or args == '':
+            if self.twitter_handle:
+                self.say(sender, 'Currently listening for twitter updates from @{}'.format(self.twitter_handle))
+            return True
+
+        if is_valid_nick(args) and args != self.twitter_handle:
+            self.twitter_handle = args
+            self.latest_tweet = {}
+            self.save()
+            self.say(sender, 'Ok, now listening for twitter updates for @{}'.format(args))
+            return True
+
+
+class Bot(BotTwitterMixin,
+          BotCountersMixin,
           BotCustomizableReplyMixin,
           BotTimerMixin,
           BotFunMixin,
