@@ -414,12 +414,12 @@ class BaseBot(object):
             return True
 
         # Split command and arguments
-        command, _, args = message.partition(' ')
+        command, _, message = message.partition(' ')
 
         # derive method name and call it with given arguments.
         try:
             method = getattr(self, 'command_{}'.format(command))
-            method(sender, args)
+            method(sender=sender, message=message)
             return True
         # or maybe the command does not exist.
         except AttributeError:
@@ -521,7 +521,7 @@ class WeechatBot(BaseBot):
 
 class BaseCommandsBot(object):
     """Some very basic commands. Just enough to make the bot somewhat useful."""
-    def command_mute(self, sender, args):
+    def command_mute(self, sender=None, message=''):
         """Mute the bot, it will stop talking but still execute things. Ops only."""
         if not self.can_use_op(sender):
             return False
@@ -531,7 +531,7 @@ class BaseCommandsBot(object):
         self.save()
         return True
 
-    def command_unmute(self, sender, args):
+    def command_unmute(self, sender=None, message=''):
         """Unmute the bot. Ops only."""
         if not self.can_use_op(sender):
             return False
@@ -541,135 +541,130 @@ class BaseCommandsBot(object):
         self.save()
         return True
 
-    def command_ops(self, sender, args):
+    def command_ops(self, sender=None, message=''):
         """Return a list of nicks that can use op commands."""
-        if sender.nick in self.get_blacklist():
-            return False
-
         return self.say(sender, str(self.get_ops()))
 
-    def command_op(self, sender, nick):
+    def command_op(self, sender=None, message=''):
         """Add nick to list of ops. Owner only. Syntax: {symbol}op <nick>"""
         if not self.can_use_owner(sender):
             return
 
-        if not is_valid_nick(nick):
+        if not is_valid_nick(message):
             return self.say(sender, "That is not a valid nick.")
 
-        if nick in self.ops:
+        if message in self.ops:
             return self.say(sender, '{} is already op.')
 
-        self.ops.append(nick)
-        self.say(sender, "Ok, {} is now op.".format(nick))
+        self.ops.append(message)
+        self.say(sender, "Ok, {} is now op.".format(message))
         self.save()
 
-    def command_deop(self, sender, nick):
+    def command_deop(self, sender=None, message=''):
         """Remove nick from list of ops. Owner only. Syntax: {symbol}deop <nick>"""
         if not self.can_use_owner(sender):
             return
 
-        if not is_valid_nick(nick):
+        if not is_valid_nick(message):
             self.say(sender, "That is not a valid nick.")
 
-        if nick in self.ops:
-            self.ops.remove(nick)
-            self.say(sender, "Ok, {} is no longer op.".format(nick))
+        if message in self.ops:
+            self.ops.remove(message)
+            self.say(sender, "Ok, {} is no longer op.".format(message))
             self.save()
 
-    def command_amiop(self, sender, args):
+    def command_amiop(self, sender=None, message=''):
         """Tells you if you are an op."""
         if self.can_use_op(sender):
             self.say(sender, "{}, you are an op.".format(sender.nick))
         else:
             self.say(sender, "Sorry, {}, you are not.".format(sender.nick))
 
-    def command_regulars(self, sender, args):
+    def command_regulars(self, sender=None, message=''):
         """Print a list of regulars."""
         if not self.can_use_regular(sender.nick):
             return
 
         self.say(sender, str(self.get_regulars()))
 
-    def command_regular(self, sender, nick):
+    def command_regular(self, sender=None, message=''):
         """Add nick to list of regulars. Ops only. Syntax: {symbol}regular <nick>"""
         if not self.can_use_op(sender):
             return
 
-        if not is_valid_nick(nick):
+        if not is_valid_nick(message):
             self.say(sender, 'That is not a valid nick.')
 
-        if nick not in self.regulars:
-            self.regulars.append(nick)
-            self.say(sender, 'OK, {} is a regular.'.format(nick))
+        if message not in self.regulars:
+            self.regulars.append(message)
+            self.say(sender, 'OK, {} is a regular.'.format(message))
             self.save()
 
-    def command_deregular(self, sender, nick):
+    def command_deregular(self, sender=None, message=''):
         """Remove nick from list of regulars. Ops only. Syntax: {symbol}deregular <nick>"""
         if not self.can_use_op(sender):
             return
 
-        if not is_valid_nick(nick):
+        if not is_valid_nick(message):
             self.say(sender, 'That is not a valid nick.')
 
-        if nick in self.regulars:
-            self.regulars.remove(nick)
-            self.say(sender, 'OK, {} is no longer a regular.'.format(nick))
+        if message in self.regulars:
+            self.regulars.remove(message)
+            self.say(sender, 'OK, {} is no longer a regular.'.format(message))
             self.save()
 
-    def command_amiregular(self, sender, args):
+    def command_amiregular(self, sender=None, message=''):
         """Tells you if you are regulars."""
         if self.can_use_regular(sender):
             self.say(sender, '{}, you are a regular.'.format(sender.nick))
         else:
             self.say(sender, 'Sorry, {}, you are not a regular.'.format(sender.nick))
 
-    def command_ignore(self, sender, nick):
+    def command_ignore(self, sender=None, message=''):
         """Add a nick to the blacklist, preventing that person from interacting with the bot. Ops only. Syntax: {symbol}ignore <nick>"""
         if not self.can_use_op(sender):
             return
 
-        if not is_valid_nick(nick):
+        if not is_valid_nick(message):
             self.say(sender, 'That is not a valid nick.')
 
-        if nick not in self.blacklist:
-            self.blacklist.append(nick)
-            self.say(sender, 'Ok, I\'ll ignore {}.'.format(nick))
+        if message not in self.blacklist:
+            self.blacklist.append(message)
+            self.say(sender, 'Ok, I\'ll ignore {}.'.format(message))
             self.save()
         else:
-            self.say(sender, '{} is already blacklisted.'.format(nick))
+            self.say(sender, '{} is already blacklisted.'.format(message))
 
-    def command_unignore(self, sender, nick):
+    def command_unignore(self, sender=None, message=''):
         """Remove a nick from the blacklist, allowing that person to interact with the bot. Ops only. Syntax: {symbol}unignore <nick>"""
         if not self.can_use_op(sender):
             return
 
-        if not is_valid_nick(nick):
+        if not is_valid_nick(message):
             self.say(sender, 'That is not a valid nick.')
 
-        if nick in self.blacklist:
-            self.blacklist.remove(nick)
-            self.say(sender, 'Ok, I\'ll no longer ignore {}.'.format(nick))
+        if message in self.blacklist:
+            self.blacklist.remove(message)
+            self.say(sender, 'Ok, I\'ll no longer ignore {}.'.format(message))
             self.save()
         else:
-            self.say(sender, '{} is not blacklisted.'.format(nick))
+            self.say(sender, '{} is not blacklisted.'.format(message))
 
-    def command_commands(self, sender, args):
+    def command_commands(self, sender=None, message=''):
         """Show a list of known commands."""
 
         commands = ', '.join(self.listcommands())
         self.say(sender, 'Known commands: {}'.format(commands))
 
-    def command_help(self, sender, message):
+    def command_help(self, sender=None, message=''):
         """Print help for a given command. Syntax: {symbol}help <command>"""
-        args = None
-
         if message == '':
             message = 'help'
 
-        command, _, args = message.partition(' ')
+        command, _, message = message.partition(' ')
 
         if hasattr(self, 'help_'+command):
-            return getattr(self, 'help_'+command)(sender, args)
+            return getattr(self, 'help_'+command)(sender=sender, message=message)
 
         if not hasattr(self, 'command_'+command):
             return self.say(sender, 'Not a valid command or no help available.')
@@ -717,7 +712,7 @@ class BotTwitchMixin(object):
     #def get_regulars(self):
     #    """Return a list of regulars, make sure that subscribers are also regulars."""
 
-    def command_chatters(self, sender, args):
+    def command_chatters(self, sender=None, message=''):
         """Return the number of viewers in chat."""
         self.say(sender, 'There are {} chatters.'.format(len(self.get_nicklist())))
 
@@ -731,23 +726,23 @@ class BotFunMixin(object):
         self.charm = 'ConeDodger240'
         super(BotFunMixin, self).__init__(*args, **kwargs)
 
-    def command_luck(self, sender, args):
+    def command_luck(self, sender=None, message=''):
         """Check if the "good luck charm" is in chat."""
         if self.nick_in_chat(self.charm) or sender == self.charm:
             self.say(sender, 'Oh NO! {} is here. Better save regularly. kurtCone'.format(self.charm))
         else:
             self.say(sender, 'Reoice! You\'re safe, the kurtCone has been dodged.')
 
-    def command_setcharm(self, sender, args):
+    def command_setcharm(self, sender=None, message=''):
         """Set a new user as good luck charm. Ops only. Syntax: {symbol}setcharm <nick>"""
         if not self.can_use_op(sender):
             return
 
-        if not is_valid_nick(args):
+        if not is_valid_nick(message):
             return self.say(sender, 'That is not a valid nickname.')
 
-        self.charm = args
-        self.say(sender, '{} is now the "good luck" charm.'.format(args))
+        self.charm = message
+        self.say(sender, '{} is now the "good luck" charm.'.format(message))
 
 
 class BotTimerMixin(object):
@@ -758,41 +753,40 @@ class BotTimerMixin(object):
         self.timers = OrderedDict()
         super(BotTimerMixin, self).__init__(*args, **kwargs)
 
-    def command_timer(self, sender, args):
+    def command_timer(self, sender=None, message=''):
         """Performs timer related actions: new, del, start, stop, restart, split, resplit, delsplit, status, report, list, active, rename, adjust, adjustsplit. Syntax: {symbol}timer [action] ; {symbol}timer without an action is equivalent to {symbol}timer status"""
-        if args is '':
-            args = 'status'
+        if message is '':
+            message = 'status'
 
-        args = args.split()
-        command = args.pop(0)
+        command, _, message = message.partition(' ')
 
         try:
             method = getattr(self, 'timer_{}'.format(command))
         except AttributeError:
             return
 
-        return method(sender, args)
+        return method(sender=sender, message=message)
 
-    def help_timer(self, sender, args):
+    def help_timer(self, sender=None, message=''):
         """Determine which action is being used and display the docstring for the corresponding method."""
-        if args is None:
+        if message == '':
             return self.say(sender, getattr(self, 'command_timer').__doc__)
 
-        action = args.split()[0]
+        action, _, message = message.partition(' ')
 
         if hasattr(self, 'timer_'+action):
             return self.say(sender, getattr(self, 'timer_'+action).__doc__)
 
         return self.say(sender, '{} is not a valid action.'.format(action))
 
-    def timer_new(self, sender, args):
+    def timer_new(self, sender=None, message=''):
         """Create a timer. Ops only. Syntax: {symbol}timer new [name]"""
         if not self.can_use_op(sender):
             return
 
-        try:
-            name = args.pop(0)
-        except IndexError:
+        name, _, _ = message.partition(' ')
+
+        if name is '':
             name = datetime.now().strftime('%Y%m%d%H%M')
 
         if name in self.timers.keys():
@@ -803,14 +797,14 @@ class BotTimerMixin(object):
         self.say(sender, 'Timer "{}" has been created.'.format(name))
         self.save()
 
-    def timer_del(self, sender, args):
+    def timer_del(self, sender=None, message=''):
         """Remove a timer. Ops only. Syntax: {symbol}timer del <name>"""
         if not self.can_use_op(sender):
             return
 
-        try:
-            name = args.pop(0)
-        except IndexError:
+        name, _, _ = message.partition(' ')
+
+        if name is '':
             return self.say(sender, 'Invalid syntax: {symbol}timer del <name>'.format(symbol=COMMAND_SYMBOL))
 
         if name not in self.timers.keys():
@@ -822,14 +816,14 @@ class BotTimerMixin(object):
         self.say(sender, 'Timer "{}" has been removed.'.format(name))
         self.save()
 
-    def timer_start(self, sender, args):
+    def timer_start(self, sender=None, message=''):
         """Starts the named timer or the active timer. Regulars only. Syntax: {symbol}timer start [name]"""
         if not self.can_use_regular(sender):
             return
 
-        try:
-            name = args.pop(0)
-        except IndexError:
+        name, _, _ = message.partition(' ')
+
+        if name is '':
             name = self.active_timer
 
         if name not in self.timers.keys():
@@ -842,14 +836,13 @@ class BotTimerMixin(object):
         self.say(sender, 'Timer "{}" has been started.'.format(name))
         self.save()
 
-    def timer_stop(self, sender, args):
+    def timer_stop(self, sender=None, message=''):
         """Stops the named timer or the active timer. Regulars only. Syntax: {symbol}timer stop [name]"""
         if not self.can_use_regular(sender):
             return
 
-        try:
-            name = args.pop(0)
-        except IndexError:
+        name, _, _ = message.partition(' ')
+        if name is '':
             name = self.active_timer
 
         if name not in self.timers.keys():
@@ -862,14 +855,13 @@ class BotTimerMixin(object):
         self.say(sender, 'Timer "{}" has been stopped: {}'.format(name, self.timers[name].elapsed))
         self.save()
 
-    def timer_restart(self, sender, args):
+    def timer_restart(self, sender=None, message=''):
         """Restart a named timer or the active timer. Regulars only. Syntax: {symbol}timer restart [name]"""
         if not self.can_use_regular(sender):
             return
 
-        try:
-            name = args.pop(0)
-        except IndexError:
+        name, _, _ = message.partition(' ')
+        if name is '':
             name = self.active_timer
 
         if name not in self.timers.keys():
@@ -882,19 +874,16 @@ class BotTimerMixin(object):
         self.say(sender, 'Timer "{}" has been restarted.'.format(name))
         self.save()
 
-    def timer_split(self, sender, args):
+    def timer_split(self, sender=None, message=''):
         """Create a split for the named or active timer. Regulars only. Syntax: {symbol}timer split <split name> [timer name]"""
         if not self.can_use_regular(sender):
             return
 
-        try:
-            splitname = args.pop(0)
-        except IndexError:
+        splitname, _, timername = message.partition(' ')
+        if splitname is '':
             return self.say(sender, 'Invalid syntax: {symbol}timer split <split name> [timer name]'.format(symbol=COMMAND_SYMBOL))
 
-        try:
-            timername = args.pop(0)
-        except IndexError:
+        if timername is '':
             timername = self.active_timer
 
         if timername not in self.timers.keys():
@@ -912,19 +901,17 @@ class BotTimerMixin(object):
         self.say(sender, 'Split "{split}" has been created: {time}'.format(split=splitname, time=splittime))
         self.save()
 
-    def timer_resplit(self, sender, args):
+    def timer_resplit(self, sender=None, message=''):
         """Update a split time for the named or active timer. Regulars only. Syntax: {symbol}timer resplit <split name> [timer name]"""
         if not self.can_use_regular(sender):
             return
 
-        try:
-            splitname = args.pop(0)
-        except IndexError:
+        splitname, _, timername = message.partition(' ')
+
+        if splitname is '':
             return self.say(sender, 'Invalid syntax: {symbol}timer split <split name> [timer name]'.format(symbol=COMMAND_SYMBOL))
 
-        try:
-            timername = args.pop(0)
-        except IndexError:
+        if timername is '':
             timername = self.active_timer
 
         if timername not in self.timers.keys():
@@ -942,19 +929,16 @@ class BotTimerMixin(object):
             time=splittime))
         self.save()
 
-    def timer_delsplit(self, sender, args):
+    def timer_delsplit(self, sender=None, message=''):
         """Remove a split from the named or active timer. Ops only. Syntax: {symbol}timer delsplit <split name> [timer name]"""
         if not self.can_use_op(sender):
             return
 
-        try:
-            splitname = args.pop(0)
-        except IndexError:
+        splitname, _, timername = message.partition(' ')
+        if splitname is '':
             return self.say(sender, 'Invalid syntax: {symbol}timer delsplit <split name> [timer name]'.format(symbol=COMMAND_SYMBOL))
 
-        try:
-            timername = args.pop(0)
-        except IndexError:
+        if timername is '':
             timername = self.active_timer
 
         if timername not in self.timers.keys():
@@ -967,12 +951,12 @@ class BotTimerMixin(object):
         self.say(sender, 'Split "{}" has been removed from timer "{}".'.format(splitname, timername))
         self.save()
 
-    def timer_status(self, sender, args):
+    def timer_status(self, sender=None, message=''):
         """Give the status of named or active timer. Syntax: {symbol}timer status [name]"""
 
-        try:
-            name = args.pop(0)
-        except IndexError:
+        name, _, _ = message.partition(' ')
+
+        if name is '':
             name = self.active_timer
 
         if name is None:
@@ -990,12 +974,12 @@ class BotTimerMixin(object):
         else:
             return self.say(sender, 'Timer "{}" has not been started yet.'.format(name))
 
-    def timer_report(self, sender, args):
+    def timer_report(self, sender=None, message=''):
         """Print a more detailed report of the named or active timer. Syntax: {symbol}timer report [name]"""
 
-        try:
-            name = args.pop(0)
-        except IndexError:
+        name, _, _ = self.partition(' ')
+
+        if name is '':
             name = self.active_timer
 
         if name not in self.timers.keys():
@@ -1015,7 +999,7 @@ class BotTimerMixin(object):
         else:
             return self.say(sender, 'Timer "{}" has not been started yet.'.format(name))
 
-    def timer_list(self, sender, args):
+    def timer_list(self, sender=None, message=''):
         """Print a list of all known timers. Syntax: {symbol}timer list"""
         if not self.can_use_regular(sender):
             return
@@ -1023,43 +1007,37 @@ class BotTimerMixin(object):
         if len(self.timers) == 0:
             return self.say(sender, 'No timers exist.')
 
-        keys = []
-        for k, t in self.timers.items():
-            name = k
-            if t.running:
-                name += ' (running)'
-            if k == self.active_timer:
-                name += ' (active)'
-            keys.append(name)
-        timers = ', '.join(keys)
-        self.say(sender, 'Known timers: {}'.format(timers))
+        timer_string = ', '.join(
+            k + ('*' if v.running else '') + ('!' if k == self.active_timer else '')
+            for k, v in self.timers.iteritems()
+        )
+        self.say(sender, 'Known timers: {}  (* = running, ! = default)'.format(timer_string))
 
-    def timer_active(self, sender, args):
+    def timer_active(self, sender=None, message=''):
         """Set timer by name to active. Ops only. Syntax: {symbol}timer active <name>"""
         if not self.can_use_op(sender):
             return
 
-        try:
-            name = args.pop(0)
-        except IndexError:
+        name, _, _ = message.partition(' ')
+
+        if name is '':
             name = self.active_timer
 
         if name not in self.timers.keys():
             return self.say(sender, 'Timer "{}" does not exist.'.format(name))
 
         self.active_timer = name
-        self.say(sender, 'Timer "{}" is now active.'.format())
+        self.say(sender, 'Timer "{}" is now active.'.format(name))
         self.save()
 
-    def timer_rename(self, sender, args):
+    def timer_rename(self, sender=None, message=''):
         """Rename a timer. Ops only. Syntax {symbol}timer rename <oldname> <newname>"""
         if not self.can_use_op(sender):
             return
 
-        try:
-            oldname = args.pop(0)
-            newname = args.pop(0)
-        except IndexError:
+        oldname, _, newname = message.partition(' ')
+
+        if oldname is '' or newname is '':
             return self.say(sender, 'Invalid syntax: {symbol}timer rename <oldname> <newname>'.format(symbol=COMMAND_SYMBOL))
 
         if oldname not in self.timers.keys():
@@ -1074,19 +1052,22 @@ class BotTimerMixin(object):
         self.say(sender, 'Timer "{}" has been renamed to "{}"'.format(oldname, newname))
         self.save()
 
-    def timer_adjust(self, sender, args):
+    def timer_adjust(self, sender=None, message=''):
         """Add or remove seconds from the timer to adjust the time. Ops only. Syntax: {symbol}timer adjust <seconds>"""
         if not self.can_use_op(sender):
             return
 
-        try:
-            seconds = int(float(args.pop(0)))
-        except IndexError:
+        seconds, _, timername = message.partition(' ')
+
+        if seconds is '':
             return self.say(sender, 'Invalid syntax: {symbol}timer adjust <seconds> [timername]'.format(symbol=COMMAND_SYMBOL))
 
         try:
-            timername = args.pop(0)
-        except IndexError:
+            seconds = int(seconds)
+        except ValueError:
+            return self.say(sender, 'Invalid syntax: {symbol}timer adjust <seconds> [timername]'.format(symbol=COMMAND_SYMBOL))
+
+        if timername is '':
             timername = self.active_timer
 
         if timername not in self.timers.keys():
@@ -1100,20 +1081,23 @@ class BotTimerMixin(object):
         ))
         self.save()
 
-    def timer_adjustsplit(self, sender, args):
-        """Add or remove some seconds to the split time. Ops only. Syntax: {symbol}timer adjustsplit <split name> <seconds> [timer name]"""
+    def timer_adjustsplit(self, sender=None, message=''):
+        """Add or remove some seconds to the split time. Ops only. Syntax: {symbol}timer adjustsplit <seconds> <split name> [timer name]"""
         if not self.can_use_op(sender):
             return
 
-        try:
-            splitname = args.pop(0)
-            seconds = int(float(args.pop(0)))
-        except IndexError:
-            return self.say(sender, 'Invalid syntax: {symbol}timer adjustsplit <name> <seconds> [timer]'.format(symbol=COMMAND_SYMBOL))
+        seconds, _, message = message.partition(' ')
+        splitname, _, timername = message.partition(' ')
+
+        if seconds is '' or splitname is '':
+            return self.say(sender, 'Invalid syntax: {symbol}timer adjustsplit <seconds> <name> [timer]'.format(symbol=COMMAND_SYMBOL))
 
         try:
-            timername = args.pop(0)
-        except IndexError:
+            seconds = int(seconds)
+        except ValueError:
+            return self.say(sender, 'Invalid syntax: {symbol}timer adjustsplit <seconds> <name> [timer]'.format(symbol=COMMAND_SYMBOL))
+
+        if timername is '':
             timername = self.active_timer
 
         timer = self.timers[timername]
@@ -1138,7 +1122,7 @@ class BotCustomizableReplyMixin(object):
         commands = self.custom_replies.keys()
         return super_list + commands
 
-    def dispatch(self, sender, message):
+    def dispatch(self, sender=None, message=''):
         # we extend the dispatch method of BaseBot and do nothing if a command has already been executed.
         if super(BotCustomizableReplyMixin, self).dispatch(sender, message):
             return True
@@ -1150,14 +1134,13 @@ class BotCustomizableReplyMixin(object):
 
         return False
 
-    def command_set(self, sender, message):
+    def command_set(self, sender=None, message=''):
         """Define a custom reply message. Ops only. Syntax: {symbol}set <name> <reply>"""
         if not self.can_use_op(sender):
             return
 
-        try:
-            name, text = message.split(None, 1)
-        except:
+        name, _, text = message.partition(' ')
+        if name is '' or text is '':
             return self.say(sender, 'Invalid syntax: {symbol}set <name> <text>'.format(symbol=COMMAND_SYMBOL))
 
         if name in self.listcommands() and name not in self.custom_replies.keys():
@@ -1168,7 +1151,7 @@ class BotCustomizableReplyMixin(object):
         self.save()
         return True
 
-    def command_unset(self, sender, message):
+    def command_unset(self, sender=None, message=''):
         """Remove a custom reply message. Ops only. Syntax: {symbol}unset <name>"""
         if not self.can_use_op(sender):
             return False
@@ -1197,7 +1180,7 @@ class BotCountersMixin(object):
         commands = self.counters.keys()
         return super_list + commands
 
-    def dispatch(self, sender, message):
+    def dispatch(self, sender=None, message=''):
         # extend dispatch() method
         if super(BotCountersMixin, self).dispatch(sender, message):
             return True
@@ -1212,12 +1195,11 @@ class BotCountersMixin(object):
 
         return False
 
-    def command_counter(self, sender, args):
+    def command_counter(self, sender=None, message=''):
         """Performs counter related actions. Syntax: {symbol}counter <action> <name>; where possible actions are: list, new, del, set, add, reply. See {symbol}help counter <action>"""
 
-        try:
-            action, _, message = args.partition(' ')
-        except:
+        action, _, _ = message.partition(' ')
+        if action is '':
             return self.say(sender, 'Invalid syntax: {symbol}counter <action>'.format(symbol=COMMAND_SYMBOL))
 
         try:
@@ -1225,34 +1207,33 @@ class BotCountersMixin(object):
         except AttributeError:
             return self.say(sender, '{} is not a valid action.'.format(action))
 
-        return method(sender, message)
+        return method(sender=sender, message=message)
 
-    def help_counter(self, sender, args):
+    def help_counter(self, sender=None, message=''):
         """Determine the action being used and display the corresponding method's docstring."""
-        if args is '':
+        if message is '':
             return self.say(sender, getattr(self, 'command_counter').__doc__.format(symbol=COMMAND_SYMBOL))
 
-        action = args.split()[0]
+        action, _, _ = message.partition(' ')
 
         if hasattr(self, 'counter_'+action):
             return self.say(sender, getattr(self, 'counter_'+action).__doc__)
 
         return self.say(sender, '{} is not a valid action.'.format(action))
 
-    def counter_new(self, sender, message):
+    def counter_new(self, sender=None, message=''):
         """Create a new counter. Ops only. Syntax: {symbol}counter new <name> [reply]"""
         if not self.can_use_op(sender):
             return
 
-        try:
-            name, _, reply = message.partition(' ')
-        except:
+        name, _, reply = message.partition(' ')
+        if name is '':
             return self.say(sender, 'Invalid syntax: {symbol}counter new <name> [reply]'.format(symbol=COMMAND_SYMBOL))
 
         if name in self.listcommands():
             return self.say(sender, 'This command already exists.')
 
-        if not reply:
+        if reply is '':
             reply = 'Counter {}: {}'.format(name, '{}')
 
         self.counters[name] = {
@@ -1262,14 +1243,13 @@ class BotCountersMixin(object):
         self.say(sender, 'Counter "{}" has been created.'.format(name))
         self.save()
 
-    def counter_del(self, sender, message):
+    def counter_del(self, sender=None, message=''):
         """Remove a counter. Ops only. Syntax: {symbol}counter del <name>"""
         if not self.can_use_op(sender):
             return
 
-        try:
-            name = message.partition(' ')[0]
-        except:
+        name, _, _ = message.partition(' ')
+        if name is '':
             return self.say(sender, 'Invalid syntax: {symbol}counter del <name>'.format(symbol=COMMAND_SYMBOL))
 
         if name not in self.counters.keys():
@@ -1279,11 +1259,11 @@ class BotCountersMixin(object):
         self.say(sender, 'Counter "{}" has been removed.'.format(name))
         self.save()
 
-    def counter_list(self, sender, message):
+    def counter_list(self, sender=None, message=''):
         """Show a list of counters. Syntax: {symbol}counter list"""
         return self.say(sender, 'I know these counters: {}'.format(', '.join(self.counters.keys())))
 
-    def counter_set(self, sender, message):
+    def counter_set(self, sender=None, message=''):
         """Set a counter to a value. Ops only. Syntax: {symbol}counter <name> <integer>"""
         if not self.can_use_op(sender):
             return
@@ -1301,7 +1281,7 @@ class BotCountersMixin(object):
         self.say(sender, 'Counter "{}" is now: {}'.format(name, value))
         self.save()
 
-    def counter_add(self, sender, message):
+    def counter_add(self, sender=None, message=''):
         """Add a value to the counter. Ops only. Syntax: {symbol}counter add <name> <integer>"""
         if not self.can_use_op(sender):
             return
@@ -1319,14 +1299,14 @@ class BotCountersMixin(object):
         self.say(sender, 'Counter "{}" is now: {}'.format(name, self.counters[name]['value']))
         self.save()
 
-    def counter_reply(self, sender, message):
+    def counter_reply(self, sender=None, message=''):
         """Change the reply of a counter without changing the value. Ops only. Syntax: {symbol}counter reply <name> <text>"""
         if not self.can_use_op(sender):
             return
 
-        try:
-            name, _, reply = message.partition(' ')
-        except IndexError:
+        name, _, reply = message.partition(' ')
+
+        if name is '' or reply is '':
             return self.say(sender, 'Invalid syntax: {symbol}counter reply <name> <text>'.format(symbol=COMMAND_SYMBOL))
 
         if name not in self.counters.keys():
@@ -1382,7 +1362,7 @@ class BotTwitterMixin(object):
         else:
             return False
 
-    def command_latest(self, sender, args):
+    def command_latest(self, sender=None, message=''):
         """Show the latest tweet from the associated twitter handle. Regulars only. See also: {symbol}help handle"""
         if not self.can_use_regular(sender):
             return
@@ -1395,21 +1375,21 @@ class BotTwitterMixin(object):
             self.say(sender, 'Latest tweet by @{handle}: "{text}" – {url}'.format(handle=handle, text=text, url=url))
             return True
 
-    def command_handle(self, sender, args):
+    def command_handle(self, sender=None, message=''):
         """Set the twitter handle for this channel or show currently set handle. Ops only. Syntax: {symbol}handle [twitch username]"""
         if not self.can_use_op(sender):
             return
 
-        if args is None or args == '':
+        if message is '':
             if self.twitter_handle:
                 self.say(sender, 'Currently listening for twitter updates from @{}'.format(self.twitter_handle))
             return True
 
-        if is_valid_nick(args) and args != self.twitter_handle:
-            self.twitter_handle = args
+        if is_valid_nick(message) and message != self.twitter_handle:
+            self.twitter_handle = message
             self.latest_tweet = {}
             self.save()
-            self.say(sender, 'Ok, now listening for twitter updates for @{}'.format(args))
+            self.say(sender, 'Ok, now listening for twitter updates for @{}'.format(message))
             return True
 
 
