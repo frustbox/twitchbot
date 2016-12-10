@@ -647,27 +647,36 @@ class BaseCommandsBot(object):
     def command_ignore(self, sender=None, message=''):
         """Add a nick to the blacklist, preventing that person from interacting with the bot. Ops only. Syntax: {symbol}ignore <nick>"""
         if not is_valid_nick(message):
-            self.say(sender, 'That is not a valid nick.')
+            return self.say(sender, 'That is not a valid nick.')
 
-        if message not in self.blacklist:
+        if message in self.get_owner():
+            return self.say(sender, 'I would never do that. {} is my master.'.format(message))
+
+        if self.can_use_op(message):
+            return self.say(sender, '{} is an op.'.format(message))
+
+        if self.can_use_regular(message):
+            return self.say(sender, '')
+
+        if self.is_blacklisted(message):
             self.blacklist.append(message)
-            self.say(sender, 'Ok, I\'ll ignore {}.'.format(message))
             self.save()
+            return self.say(sender, 'Ok, I\'ll ignore {}.'.format(message))
         else:
-            self.say(sender, '{} is already blacklisted.'.format(message))
+            return self.say(sender, '{} is already blacklisted.'.format(message))
 
     @require_op
     def command_unignore(self, sender=None, message=''):
         """Remove a nick from the blacklist, allowing that person to interact with the bot. Ops only. Syntax: {symbol}unignore <nick>"""
         if not is_valid_nick(message):
-            self.say(sender, 'That is not a valid nick.')
+            return self.say(sender, 'That is not a valid nick.')
 
         if message in self.blacklist:
             self.blacklist.remove(message)
-            self.say(sender, 'Ok, I\'ll no longer ignore {}.'.format(message))
             self.save()
+            return self.say(sender, 'Ok, I\'ll no longer ignore {}.'.format(message))
         else:
-            self.say(sender, '{} is not blacklisted.'.format(message))
+            return self.say(sender, '{} is not blacklisted.'.format(message))
 
     def command_commands(self, sender=None, message=''):
         """Show a list of known commands."""
