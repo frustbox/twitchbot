@@ -796,12 +796,12 @@ class BotTimerMixin(object):
     def help_timer(self, sender=None, message=''):
         """Determine which action is being used and display the docstring for the corresponding method."""
         if message == '':
-            return self.say(sender, getattr(self, 'command_timer').__doc__)
+            return self.say(sender, getattr(self, 'command_timer').__doc__.format(symbol=COMMAND_SYMBOL))
 
         action, _, message = message.partition(' ')
 
         if hasattr(self, 'timer_'+action):
-            return self.say(sender, getattr(self, 'timer_'+action).__doc__)
+            return self.say(sender, getattr(self, 'timer_'+action).__doc__.format(symbol=COMMAND_SYMBOL))
 
         return self.say(sender, '{} is not a valid action.'.format(action))
 
@@ -954,7 +954,7 @@ class BotTimerMixin(object):
         if timername not in self.timers.keys():
             return self.say(sender, 'Timer "{}" does not exist.'.format(timername))
 
-        if self.timers[timername].has_split(splitname):
+        if not self.timers[timername].has_split(splitname):
             return self.say(sender, 'Split "{}" does not exist.'.format(splitname))
 
         self.timers[timername].removesplit(splitname)
@@ -987,7 +987,7 @@ class BotTimerMixin(object):
     def timer_report(self, sender=None, message=''):
         """Print a more detailed report of the named or active timer. Syntax: {symbol}timer report [name]"""
 
-        name, _, _ = self.partition(' ')
+        name, _, _ = message.partition(' ')
 
         if name is '':
             name = self.active_timer
@@ -1196,7 +1196,7 @@ class BotCountersMixin(object):
     def command_counter(self, sender=None, message=''):
         """Performs counter related actions. Syntax: {symbol}counter <action> <name>; where possible actions are: list, new, del, set, add, reply. See {symbol}help counter <action>"""
 
-        action, _, _ = message.partition(' ')
+        action, _, message = message.partition(' ')
         if action is '':
             return self.say(sender, 'Invalid syntax: {symbol}counter <action>'.format(symbol=COMMAND_SYMBOL))
 
@@ -1215,7 +1215,7 @@ class BotCountersMixin(object):
         action, _, _ = message.partition(' ')
 
         if hasattr(self, 'counter_'+action):
-            return self.say(sender, getattr(self, 'counter_'+action).__doc__)
+            return self.say(sender, getattr(self, 'counter_'+action).__doc__.format(symbol=COMMAND_SYMBOL))
 
         return self.say(sender, '{} is not a valid action.'.format(action))
 
@@ -1269,7 +1269,7 @@ class BotCountersMixin(object):
         if name not in self.counters.keys():
             return self.say(sender, 'Counter "{}" does not exist.'.format(name))
 
-        self.counters[name]['value'] = value
+        self.counters[name]['value'] = max(0, value)
         self.say(sender, 'Counter "{}" is now: {}'.format(name, value))
         self.save()
 
@@ -1285,7 +1285,7 @@ class BotCountersMixin(object):
         if name not in self.counters.keys():
             return self.say(sender, 'Counter "{}" does not exist.'.format(name))
 
-        self.counters[name]['value'] += value
+        self.counters[name]['value'] = max(0, self.counters[name]['value'] + value)
         self.say(sender, 'Counter "{}" is now: {}'.format(name, self.counters[name]['value']))
         self.save()
 
