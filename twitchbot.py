@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-# -*- coding: utf-8 -*-
+import json
 import re
 import pickle
-import requests
+import oauth2
 from collections import namedtuple, OrderedDict
 from datetime import datetime, timedelta
 from functools import wraps
+from HTMLParser import HTMLParser
+
 
 import_ok = True
 try:
@@ -20,6 +23,11 @@ SCRIPT_AUTHOR = "frustbox"
 SCRIPT_VERSION = "0.1"
 SCRIPT_LICENSE = "GPL3"
 SCRIPT_DESCRIPTION = "This is an extensible bot for twitch chats."
+
+TWITTER_CONSUMER_KEY = 'XXXXXXXXXXXXXXXXXXXXXXXXX'
+TWITTER_CONSUMER_SECRET = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+TWITTER_ACCESS_TOKEN = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+TWITTER_ACCESS_SECRET = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
 
 User = namedtuple('User', ['prefix', 'nick'])
 # =====================================
@@ -115,34 +123,15 @@ def is_valid_nick(nick=None):
 # Twitter API
 # =====================================
 class TwitterTimeline(object):
-    api_url = 'https://api.twitter.com'
-    api_key = TWITTER_API_KEY
-
-    def __init__(self):
-        self.bearer_token = self.get_bearer_token()
-
-    def get_bearer_token(self):
-        url = '{}{}'.format(self.api_url, '/oauth2/token')
-        headers = {
-            'Authorization': 'Basic {}.'.format(self.api_key),
-            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8.'
-        }
-        response = requests.post(url, headers=headers, data={'grant_type': 'client_credentials'})
-        access_token = response.json()['access_token']
-        return access_token
-
-    def get_timeline(self, handle=None, previous_id=None):
+    def get(self, handle=None, previous_id=None, length=1):
+        """Get twitter timeline for the user."""
         if handle is None:
             return False
-        endpoint = '/1.1/statuses/user_timeline.json'
 
-        url = '{}{}'.format(self.api_url, endpoint)
-        headers = {
-            'Authorization': 'Bearer {}'.format(self.bearer_token),
-        }
+        url = 'https://api.twitter.com/1.1/statuses/user_timeline.json'
         payload = {
             'screen_name': handle,
-            'count': '1',
+            'count': length,
             'trim_user': 'true',
             'include_rts': 'false',
             'exclude_replies': 'true',
@@ -150,11 +139,20 @@ class TwitterTimeline(object):
         if previous_id is not None:
             payload['since_id'] = previous_id
 
-        response = requests.get(url, headers=headers, params=payload)
-        if response.status_code == 200:
-            return response.json()
+        response, content = self.request(url, get_params=payload)
+        if response.status is 200:
+            return json.loads(content)
         else:
             return False
+
+    def request(self, url, http_method='GET', get_params=None, post_body='', http_headers=None):
+        """Make the actual request."""
+        consumer = oauth2.Consumer(key=TWITTER_CONSUMER_KEY, secret=TWITTER_CONSUMER_SECRET)
+        token = oauth2.Token(key=TWITTER_ACCESS_TOKEN, secret=TWITTER_ACCESS_SECRET)
+        client = oauth2.Client(consumer, token)
+        if get_params is not None:
+            url += '?' + '&'.join(k+'='+str(v) for k, v in get_params.iteritems())
+        return client.request(url, method=http_method, body=post_body, headers=http_headers)
 
 
 # =====================================
@@ -1312,69 +1310,69 @@ class BotTwitterMixin(object):
         self.twitter_handle = None
         self.latest_tweet = {}
         super(BotTwitterMixin, self).__init__(*args, **kwargs)
-        self.twitter_api = TwitterTimeline()
+        self.twitter_timeline = TwitterTimeline()
         self.setup_twitter_callback()
 
     def setup_twitter_callback(self):
         """Setup the callback for the timer."""
         self._twitter_callback = callback(self.twitter_callback)
-        self._twitter_pointer = weechat.hook_timer(120*1000, 60, 0, self._twitter_callback, '')
+        self._twitter_pointer = weechat.hook_timer(60*1000, 60, 0, self._twitter_callback, '')
 
     def clean_state(self, state):
         """Remove some instance variables from state that would not survive loading."""
-        state.pop('twitter_api')
+        state.pop('twitter_timeline')
         state.pop('_twitter_callback')
         state.pop('_twitter_pointer')
         return super(BotTwitterMixin, self).clean_state(state)
 
     def twitter_callback(self, data, remaining_calls):
-        """This method is called by the automatic hook_timer. """
+        """This method is called by the automatic hook_timer and ."""
         latest_tweet = self.get_latest_tweet()
         if latest_tweet:
-            handle = self.twitter_handle
-            text = ' '.join(latest_tweet['text'].split())
-            id = latest_tweet['id']
-            url = 'https://twitter.com/{handle}/status/{id}/'.format(handle=handle, id=id)
-            self.say(User(prefix='', nick=''), 'Twitter update from @{handle}: "{text}" – {url}'.format(handle=handle, text=text, url=url))
+            self.latest_tweet = latest_tweet
+            self.save()
+            text = ('Twitter update from @{handle}: "{text}" – '
+                    'https://twitter.com/{handle}/status/{id}/').format(**latest_tweet)
+            self.say(User(prefix='', nick=''), text)
         return weechat.WEECHAT_RC_OK
 
     def get_latest_tweet(self):
         """Get the latest tweet."""
         previous_id = self.latest_tweet.get('id', None)
-        timeline = self.twitter_api.get_timeline(handle=self.twitter_handle, previous_id=previous_id)
+        timeline = self.twitter_timeline.get(handle=self.twitter_handle, previous_id=previous_id)
 
         if timeline:
-            self.latest_tweet = timeline.pop(0)
-            self.save()
-            return self.latest_tweet
+            # do some cleaning up.
+            tweet = timeline[0]
+            tweet = {
+                'handle': self.twitter_handle,
+                'id': tweet['id'],
+                'text': ' '.join(HTMLParser().unescape(tweet['text']).split()),
+            }
+            return tweet
         else:
             return False
 
     @require_regular
     def command_latest(self, sender=None, message=''):
-        """Show the latest tweet from the associated twitter handle. Regulars only. See also: {symbol}help handle"""
-        if len(self.latest_tweet) > 0:
-            handle = self.twitter_handle
-            id = self.latest_tweet['id']
-            text = " ".join(self.latest_tweet['text'].split())
-            url = 'https://twitter.com/{handle}/status/{id}/'.format(handle=handle, id=id)
-            self.say(sender, 'Latest tweet by @{handle}: "{text}" – {url}'.format(handle=handle, text=text, url=url))
+        """Show the latest tweet from the associated twitter handle. Regulars only.
+        See also: {symbol}help handle"""
+        if self.latest_tweet:
+            text = ('Latest tweet by @{handle}: "{text}" – '
+                    'https://twitter.com/{handle}/status/{id}/').format(**self.latest_tweet)
+            self.say(sender, text)
             return True
 
     @require_op
     def command_handle(self, sender=None, message=''):
-        """Set the twitter handle for this channel or show currently set handle. Ops only. Syntax: {symbol}handle [twitch username]"""
-        if message is '':
-            if self.twitter_handle:
-                self.say(sender, 'Currently listening for twitter updates from @{}'.format(self.twitter_handle))
-            return True
-
+        """Set the twitter handle for this channel or show currently set handle. Ops only.
+        Syntax: {symbol}handle [twitch username]"""
         if is_valid_nick(message) and message != self.twitter_handle:
             self.twitter_handle = message
-            self.latest_tweet = {}
+            self.latest_tweet = False
             self.save()
-            self.say(sender, 'Ok, now listening for twitter updates for @{}'.format(message))
-            return True
+        self.say(sender, 'Listening for twitter updates from @{}'.format(self.twitter_handle))
+        return True
 
 
 class Bot(BotTwitterMixin,
