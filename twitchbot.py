@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-# -*- coding: utf-8 -*-
 import json
-import re
-import pickle
 import oauth2
+import pickle
+import re
 from collections import namedtuple, OrderedDict
 from datetime import datetime, timedelta
 from functools import wraps
 from HTMLParser import HTMLParser
-
 
 import_ok = True
 try:
@@ -16,7 +15,6 @@ except ImportError:
     print('This script must be run under WeeChat.')
     print('Get WeeChat now at: http://www.weechat.org/')
     import_ok = False
-
 
 SCRIPT_NAME = "twitchbot"
 SCRIPT_AUTHOR = "frustbox"
@@ -293,7 +291,7 @@ class Timer(object):
 # Decorators
 # =====================================
 def require_owner(func):
-    """"""
+    """Only allow function to run, if user has "owner" permission."""
     @wraps(func)
     def wrap(self, *args, **kwargs):
         if not self.can_use_owner(kwargs['sender']):
@@ -303,7 +301,7 @@ def require_owner(func):
 
 
 def require_op(func):
-    """"""
+    """Only allow function to run, if user has "op" permission."""
     @wraps(func)
     def wrap(self, *args, **kwargs):
         if not self.can_use_op(kwargs['sender']):
@@ -313,7 +311,7 @@ def require_op(func):
 
 
 def require_regular(func):
-    """"""
+    """Only allow function to run, if user has "regular" permission."""
     @wraps(func)
     def wrap(self, *args, **kwargs):
         if not self.can_use_regular(kwargs['sender']):
@@ -644,7 +642,8 @@ class BaseCommandsBot(object):
 
     @require_op
     def command_ignore(self, sender=None, message=''):
-        """Add a nick to the blacklist, preventing that person from interacting with the bot. Ops only. Syntax: {symbol}ignore <nick>"""
+        """Add a nick to the blacklist, preventing that person from interacting with the bot. Ops only.
+        Syntax: {symbol}ignore <nick>"""
         if not is_valid_nick(message):
             return self.say(sender=sender, text='That is not a valid nick.')
 
@@ -666,7 +665,8 @@ class BaseCommandsBot(object):
 
     @require_op
     def command_unignore(self, sender=None, message=''):
-        """Remove a nick from the blacklist, allowing that person to interact with the bot. Ops only. Syntax: {symbol}unignore <nick>"""
+        """Remove a nick from the blacklist, allowing that person to interact with the bot. Ops only.
+        Syntax: {symbol}unignore <nick>"""
         if not is_valid_nick(message):
             return self.say(sender=sender, text='That is not a valid nick.')
 
@@ -684,19 +684,20 @@ class BaseCommandsBot(object):
 
     def command_help(self, sender=None, message=''):
         """Print help for a given command. Syntax: {symbol}help <command>"""
-        if message == '':
-            message = 'help'
-
         command, _, message = message.partition(' ')
+        if command is '':
+            command = 'help'
 
-        if hasattr(self, 'help_'+command):
-            return getattr(self, 'help_'+command)(sender=sender, message=message)
+        funcname = 'help_'+command
+        if not hasattr(self, funcname):
+            funcname = 'command_'+command
 
-        if not hasattr(self, 'command_'+command):
+        if not hasattr(self, funcname):
             return self.say(sender=sender, text='Not a valid command or no help available.')
 
-        method = getattr(self, 'command_'+command)
-        self.say(sender, method.__doc__.format(symbol=COMMAND_SYMBOL))
+        helptext = getattr(self, funcname).__doc__.format(symbol=COMMAND_SYMBOL)
+        helptext = " ".join(helptext.split())
+        return self.say(sender=sender, text=helptext)
 
 
 class BotTwitchMixin(object):
@@ -778,7 +779,9 @@ class BotTimerMixin(object):
         super(BotTimerMixin, self).__init__(*args, **kwargs)
 
     def command_timer(self, sender=None, message=''):
-        """Performs timer related actions: new, del, start, stop, restart, split, resplit, delsplit, status, report, list, active, rename, adjust, adjustsplit. Syntax: {symbol}timer [action] ; {symbol}timer without an action is equivalent to {symbol}timer status"""
+        """Performs timer related actions: new, del, start, stop, restart, split, resplit, delsplit,
+        status, report, list, active, rename, adjust, adjustsplit. Syntax: {symbol}timer [action] ;
+        {symbol}timer without an action is equivalent to {symbol}timer status"""
         if message is '':
             message = 'status'
 
@@ -793,13 +796,13 @@ class BotTimerMixin(object):
 
     def help_timer(self, sender=None, message=''):
         """Determine which action is being used and display the docstring for the corresponding method."""
-        if message == '':
-            return self.say(sender, getattr(self, 'command_timer').__doc__.format(symbol=COMMAND_SYMBOL))
-
         action, _, message = message.partition(' ')
+        funcname = 'timer_'+action if action is not '' else 'command_timer'
 
-        if hasattr(self, 'timer_'+action):
-            return self.say(sender, getattr(self, 'timer_'+action).__doc__.format(symbol=COMMAND_SYMBOL))
+        if hasattr(self, funcname):
+            helptext = getattr(self, funcname).__doc__.format(symbol=COMMAND_SYMBOL)
+            helptext = " ".join(helptext.split())
+            return self.say(sender=sender, text=helptext)
 
         return self.say(sender=sender, text='{} is not a valid action.'.format(action))
 
@@ -893,7 +896,8 @@ class BotTimerMixin(object):
 
     @require_regular
     def timer_split(self, sender=None, message=''):
-        """Create a split for the named or active timer. Regulars only. Syntax: {symbol}timer split <split name> [timer name]"""
+        """Create a split for the named or active timer. Regulars only.
+        Syntax: {symbol}timer split <split name> [timer name]"""
         splitname, _, timername = message.partition(' ')
         if splitname is '':
             return self.say(
@@ -921,7 +925,8 @@ class BotTimerMixin(object):
 
     @require_regular
     def timer_resplit(self, sender=None, message=''):
-        """Update a split time for the named or active timer. Regulars only. Syntax: {symbol}timer resplit <split name> [timer name]"""
+        """Update a split time for the named or active timer. Regulars only.
+        Syntax: {symbol}timer resplit <split name> [timer name]"""
         splitname, _, timername = message.partition(' ')
 
         if splitname is '':
@@ -950,7 +955,8 @@ class BotTimerMixin(object):
 
     @require_op
     def timer_delsplit(self, sender=None, message=''):
-        """Remove a split from the named or active timer. Ops only. Syntax: {symbol}timer delsplit <split name> [timer name]"""
+        """Remove a split from the named or active timer. Ops only.
+        Syntax: {symbol}timer delsplit <split name> [timer name]"""
         splitname, _, timername = message.partition(' ')
         if splitname is '':
             return self.say(
@@ -1120,7 +1126,8 @@ class BotTimerMixin(object):
 
     @require_op
     def timer_adjustsplit(self, sender=None, message=''):
-        """Add or remove some seconds to the split time. Ops only. Syntax: {symbol}timer adjustsplit <seconds> <split name> [timer name]"""
+        """Add or remove some seconds to the split time. Ops only.
+        Syntax: {symbol}timer adjustsplit <seconds> <split name> [timer name]"""
         seconds, _, message = message.partition(' ')
         splitname, _, timername = message.partition(' ')
 
@@ -1239,7 +1246,8 @@ class BotCountersMixin(object):
         return False
 
     def command_counter(self, sender=None, message=''):
-        """Performs counter related actions. Syntax: {symbol}counter <action> <name>; where possible actions are: list, new, del, set, add, reply. See {symbol}help counter <action>"""
+        """Performs counter related actions. Syntax: {symbol}counter <action> <name>; where possible actions are:
+        list, new, del, set, add, reply. See {symbol}help counter <action>"""
 
         action, _, message = message.partition(' ')
         if action is '':
@@ -1257,13 +1265,13 @@ class BotCountersMixin(object):
 
     def help_counter(self, sender=None, message=''):
         """Determine the action being used and display the corresponding method's docstring."""
-        if message is '':
-            return self.say(sender, getattr(self, 'command_counter').__doc__.format(symbol=COMMAND_SYMBOL))
-
         action, _, _ = message.partition(' ')
+        funcname = 'counter_'+action if action is not '' else 'command_counter'
 
-        if hasattr(self, 'counter_'+action):
-            return self.say(sender, getattr(self, 'counter_'+action).__doc__.format(symbol=COMMAND_SYMBOL))
+        if hasattr(self, funcname):
+            helptext = getattr(self, funcname).__doc__.format(symbol=COMMAND_SYMBOL)
+            helptext = " ".join(helptext.split())
+            return self.say(sender=sender, text=helptext)
 
         return self.say(sender=sender, text='{} is not a valid action.'.format(action))
 
@@ -1351,7 +1359,8 @@ class BotCountersMixin(object):
 
     @require_op
     def counter_reply(self, sender=None, message=''):
-        """Change the reply of a counter without changing the value. Ops only. Syntax: {symbol}counter reply <name> <text>"""
+        """Change the reply of a counter without changing the value. Ops only.
+        Syntax: {symbol}counter reply <name> <text>"""
         name, _, reply = message.partition(' ')
 
         if name is '' or reply is '':
