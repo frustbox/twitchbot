@@ -267,19 +267,19 @@ class Timer(object):
         """Set timer to a specific elapsed time (in seconds)."""
         if seconds != 0:
             delta = timedelta(seconds=seconds)
-            self.start_time = datetime.now() - delta
+            self.start_time = datetime.utcnow() - delta
             return True
 
     def start(self):
         """Start the timer."""
-        self.start_time = datetime.now()
+        self.start_time = datetime.utcnow()
         self.stop_time = None
         self.running = True
         return True
 
     def stop(self):
         """Stop the timer."""
-        self.stop_time = datetime.now()
+        self.stop_time = datetime.utcnow()
         self.running = False
         return True
 
@@ -308,7 +308,7 @@ class Timer(object):
 
     def restart(self):
         """Restart the timer."""
-        self.start_time = datetime.now()
+        self.start_time = datetime.utcnow()
         self.splits = OrderedDict()
         self.stop_time = None
         self.running = True
@@ -338,7 +338,7 @@ class Timer(object):
     def elapsed(self):
         """Return the elapsed time on the timer."""
         if self.running:
-            return datetime.now() - self.start_time
+            return datetime.utcnow() - self.start_time
         elif self.stopped:
             return self.stop_time - self.start_time
         else:
@@ -413,7 +413,7 @@ class BaseBot(object):
             self.muted = False
             self.previous_response = ''
             self.previous_response_time = None
-            self.previous_response_time = datetime.now()
+            self.previous_response_time = datetime.utcnow()
 
     def save(self):
         """Pickle instance variables dict and save it to a file."""
@@ -919,7 +919,7 @@ class BotTimerMixin(object):
         name, _, _ = message.partition(' ')
 
         if name is '':
-            name = datetime.now().strftime('%Y%m%d%H%M')
+            name = datetime.utcnow().strftime('%Y%m%d%H%M')
 
         if name in self.timers.keys():
             return self.say(sender=sender, text='Timer "{}" already exists.')
