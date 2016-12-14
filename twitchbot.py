@@ -3,6 +3,7 @@ import json
 import oauth2
 import pickle
 import re
+import requests
 from collections import namedtuple, OrderedDict
 from datetime import datetime, timedelta
 from functools import wraps
@@ -21,11 +22,6 @@ SCRIPT_AUTHOR = "frustbox"
 SCRIPT_VERSION = "0.1"
 SCRIPT_LICENSE = "GPL3"
 SCRIPT_DESCRIPTION = "This is an extensible bot for twitch chats."
-
-TWITTER_CONSUMER_KEY = 'XXXXXXXXXXXXXXXXXXXXXXXXX'
-TWITTER_CONSUMER_SECRET = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
-TWITTER_ACCESS_TOKEN = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
-TWITTER_ACCESS_SECRET = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
 
 User = namedtuple('User', ['prefix', 'nick'])
 # =====================================
@@ -120,6 +116,12 @@ def is_valid_nick(nick=None):
 # =====================================
 # Twitter API
 # =====================================
+TWITTER_CONSUMER_KEY = 'XXXXXXXXXXXXXXXXXXXXXXXXX'
+TWITTER_CONSUMER_SECRET = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+TWITTER_ACCESS_TOKEN = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+TWITTER_ACCESS_SECRET = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+
+
 class TwitterTimeline(object):
     def get(self, handle=None, previous_id=None, length=1):
         """Get twitter timeline for the user."""
@@ -151,6 +153,79 @@ class TwitterTimeline(object):
         if get_params is not None:
             url += '?' + '&'.join(k+'='+str(v) for k, v in get_params.iteritems())
         return client.request(url, method=http_method, body=post_body, headers=http_headers)
+
+
+# =====================================
+# Twitch API
+# =====================================
+TWITCH_CLIENT_ID = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+TWITCH_CLIENT_SECRET = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+TWITCH_ACCESS_TOKEN = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+
+
+class TwitchAPI(object):
+    api_url = 'https://api.twitch.tv/kraken'
+
+    def __init__(self):
+        # set up some authentication
+        pass
+
+    def channel(self, name=None):
+        """Return the channel object (name, followers, subscribers, ...)."""
+        endpoint = '/channels/{}'.format(name)
+        return self.get(endpoint=endpoint)
+
+    def channel_followers(self, name=None):
+        """Return the list of followers of a channel."""
+        endpoint = '/channels/{}/follows/'.format(name)
+        return self.get(endpoint=endpoint)
+
+    def channel_subscribers(self, name=None):
+        """Return the list of subscribers of a channel."""
+        endpoint = '/channels/{}/subscribtions'.format(name)
+        return self.get(endpoint=endpoint)
+
+    def user(self, name=None):
+        """Return user object (name, date joined, ...)."""
+        endpoint = '/users/{}'.format(name)
+        return self.get(endpoint=endpoint)
+
+    def user_follows(self, name=None):
+        """Return list of channels this user follows."""
+        endpoint = '/users/{}/follows/channels'.format(name)
+        return self.get(endpoint=endpoint)
+
+    def user_follows_channel(self, user=None, channel=None):
+        """Return if the user follows a channel."""
+        endpoint = '/users/{}/follows/channels/{}/'.format(user, channel)
+        return self.get(endpoint=endpoint)
+
+    def user_subscribed_channel(self, user=None, channel=None):
+        """Return if the user subscribed to a channel."""
+        endpoint = '/users/{}/subscriptions/{}/'.format(user, channel)
+        return self.get(endpoint=endpoint)
+
+    def stream(self, name=None):
+        """Return the stream object (current game, title, viewers, ...)"""
+        endpoint = '/streams/{}'.format(name)
+        return self.get(endpoint=endpoint)
+
+    def get(self, endpoint=None):
+        """Perform a get request."""
+        url = self.api_url + endpoint
+        response, content = self.request(url)
+        if response is 200:
+            return content
+        else:
+            return False
+
+    def request(self, url=None, headers=None, params=None, body=None):
+        """Perform the actual request (handle authentication etc.)"""
+        headers = {
+            'Authorization': 'OAuth {}'.format(TWITCH_ACCESS_TOKEN),
+        }
+        response = requests.get(url, headers=headers)
+        return response.status_code, response.json()
 
 
 # =====================================
@@ -703,6 +778,14 @@ class BaseCommandsBot(object):
 class BotTwitchMixin(object):
     """Add twitch specific functionality."""
 
+    def __init__(self, *args, **kwargs):
+        super(BotTwitchMixin, self).__init__(*args, **kwargs)
+        self.twitch_api = TwitchAPI()
+
+    def clean_state(self, state):
+        state.pop('twitch_api')
+        return super(BotTwitchMixin, self).clean_state(state)
+
     def can_use_owner(self, user):
         """Return True if the user can use owner commands."""
         if isinstance(user, User):
@@ -736,15 +819,39 @@ class BotTwitchMixin(object):
         super_list = super(BotTwitchMixin, self).get_owner()
         return list(set(super_list) | set([self.get_streamer()]))
 
-    #def get_regulars(self):
-    #    """Return a list of regulars, make sure that subscribers are also regulars."""
-
     def command_chatters(self, sender=None, message=''):
         """Return the number of viewers in chat."""
         self.say(sender=sender, text='There are {} chatters.'.format(len(self.get_nicklist())))
 
-    #def command_viewers(self, sender, args):
-    #    """Report the number of viewers of the stream."""
+    def command_uptime(self, sender=None, message=''):
+        """Report the current stream uptime."""
+        stream = self.twitch_api.stream(name=self.channel)
+        if stream['stream'] is None:
+            return self.say(sender=sender, text='Stream is currently offline.')
+        created = datetime.strptime(stream['stream']['created_at'], '%Y-%m-%dT%H:%M:%SZ')
+        delta = datetime.utcnow() - created
+        return self.say(sender=sender, text='The stream has been up for: {}'.format(delta))
+
+    def command_game(self, sender=None, message=''):
+        """Return the game being streamed."""
+        stream = self.twitch_api.stream(name=self.channel)
+        if stream['stream'] is None:
+            return self.say(sender=sender, text='Stream is currently offline.')
+        game = stream['stream']['game']
+        return self.say(sender=sender, text='Current game is: {}'.format(game))
+
+    def command_viewers(self, sender=None, message=''):
+        """Return the current number of viewers."""
+        stream = self.twitch_api.stream(name=self.channel)
+        if stream['stream'] is None:
+            return self.say(sender=sender, text='Stream is currently offline.')
+        viewers = stream['stream']['viewers']
+        return self.say(sender=sender, text='{} viewers.'.format(viewers))
+
+    def command_title(self, sender=None, message=''):
+        """Return the current title of the stream."""
+        channel = self.twitch_api.channel(name=self.channel)
+        self.say(sender=sender, text='Current title: "{}"'.format(channel['status']))
 
 
 class BotFunMixin(object):
